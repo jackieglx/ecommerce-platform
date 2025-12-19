@@ -13,8 +13,6 @@
     <artifactId>common-db</artifactId>
     <packaging>jar</packaging>
 
-
-
     <dependencies>
         <!-- 你要在 common-db 里写 AutoConfiguration / @ConfigurationProperties -->
         <dependency>
@@ -26,6 +24,18 @@
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>spring-cloud-gcp-starter-data-spanner</artifactId>
+        </dependency>
+
+        <!-- 直接使用 Spanner Options/Client API（非 Spring Data 也能用） -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-spanner</artifactId>
+        </dependency>
+
+        <!-- JSON 序列化工具 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
 
         <!-- 可选：生成配置提示 metadata（IDE 里写 yml 更舒服） -->

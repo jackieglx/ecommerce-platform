@@ -1,0 +1,3 @@
+com.lingxiao.common.db.config.SpannerEmulatorAutoConfiguration
+com.lingxiao.common.db.config.SpannerAutoConfiguration
+com.lingxiao.common.db.config.SpannerTransactionConfig
