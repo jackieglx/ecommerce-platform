@@ -1,0 +1,110 @@
+{
+  "index_patterns": ["products_*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "analysis": {
+        "normalizer": {
+          "lowercase_normalizer": {
+            "type": "custom",
+            "filter": ["lowercase", "asciifolding"]
+          }
+        },
+        "filter": {
+          "autocomplete_filter": {
+            "type": "edge_ngram",
+            "min_gram": 2,
+            "max_gram": 20
+          }
+        },
+        "analyzer": {
+          "product_text": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "asciifolding"]
+          },
+          "product_text_search": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "asciifolding"]
+          },
+          "autocomplete_index": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "asciifolding", "autocomplete_filter"]
+          },
+          "autocomplete_search": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "asciifolding"]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "sku_id": { "type": "keyword" },
+        "product_id": { "type": "keyword" },
+        "title": {
+          "type": "text",
+          "analyzer": "product_text",
+          "search_analyzer": "product_text_search",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256,
+              "normalizer": "lowercase_normalizer"
+            },
+            "autocomplete": {
+              "type": "text",
+              "analyzer": "autocomplete_index",
+              "search_analyzer": "autocomplete_search"
+            }
+          }
+        },
+        "description": {
+          "type": "text",
+          "analyzer": "product_text",
+          "search_analyzer": "product_text_search"
+        },
+        "brand": { "type": "keyword", "normalizer": "lowercase_normalizer" },
+        "category_id": { "type": "keyword" },
+        "category_path": { "type": "keyword" },
+        "seller_id": { "type": "keyword" },
+        "shop_id": { "type": "keyword" },
+        "tags": { "type": "keyword", "normalizer": "lowercase_normalizer" },
+        "status": { "type": "keyword" },
+        "is_active": { "type": "boolean" },
+        "in_stock": { "type": "boolean" },
+        "price_min": { "type": "long" },
+        "price_max": { "type": "long" },
+        "currency": { "type": "keyword" },
+        "rating_avg": { "type": "scaled_float", "scaling_factor": 100 },
+        "review_count": { "type": "integer" },
+        "sales_7d": { "type": "long" },
+        "sales_7d_hour": { "type": "long" },
+        "sales_7d_updated_at": { "type": "date" },
+        "created_at": { "type": "date" },
+        "updated_at": { "type": "date" },
+        "main_image_url": { "type": "keyword", "index": false },
+        "image_urls": { "type": "keyword", "index": false },
+        "attrs": { "type": "flattened" },
+        "attributes": {
+          "type": "nested",
+          "properties": {
+            "name": { "type": "keyword", "normalizer": "lowercase_normalizer" },
+            "value": { "type": "keyword", "normalizer": "lowercase_normalizer" }
+          }
+        },
+        "suggest": { "type": "completion" }
+      }
+    }
+  },
+  "_meta": {
+    "version": "v1",
+    "description": "products index template for local dev"
+  }
+}
+

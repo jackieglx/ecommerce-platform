@@ -1,0 +1,95 @@
+services:
+  spanner:
+    image: gcr.io/cloud-spanner-emulator/emulator:latest
+    container_name: spanner
+    ports:
+      - "9010:9010"   # gRPC
+      - "9020:9020"   # REST
+    networks:
+      - ecommerce-local
+
+  spanner-tools:
+    image: google/cloud-sdk:slim
+    container_name: spanner-tools
+    depends_on:
+      - spanner
+    environment:
+      SPANNER_EMULATOR_HOST: ${SPANNER_EMULATOR_HOST:-spanner:9010}
+    working_dir: /workspace/infra/local
+    volumes:
+      - ../..:/workspace
+    entrypoint: ["tail", "-f", "/dev/null"]
+    networks:
+      - ecommerce-local
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper
+    networks:
+      - ecommerce-local
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - ecommerce-local
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - ecommerce-local
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - ecommerce-local
+
+networks:
+  ecommerce-local:
+    name: ecommerce-local
+
+volumes:
+  kafka_data:
+  zookeeper_data:
+  es_data:
+
