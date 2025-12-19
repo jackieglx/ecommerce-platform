@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/libs/clients/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/clients/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-core/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-core/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-db/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-db/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-kafka/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-kafka/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-redis/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-redis/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-web/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-web/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/contracts/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/contracts/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/cart-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/cart-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/catalog-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/catalog-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/gateway-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/gateway-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/inventory-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/inventory-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/notification-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/notification-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/order-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/order-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/payment-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/payment-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/search-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/search-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/user-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/services/user-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
+  </component>
+</project>
