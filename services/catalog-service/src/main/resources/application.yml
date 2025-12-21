@@ -1,7 +1,25 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: catalog-service
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        request.timeout.ms: 30000
+        delivery.timeout.ms: 120000
+        retries: 2147483647
+
+# 你 catalog 目前怎么连 spanner emulator 的就保持一致即可；
+# 如果你现在确实是用下面这些 key 生效，就保留。
 spanner:
   project-id: ${SPANNER_PROJECT:local-project}
   instance-id: ${SPANNER_INSTANCE:local-instance}
@@ -9,3 +27,11 @@ spanner:
   emulator-enabled: ${SPANNER_EMULATOR_ENABLED:true}
   emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

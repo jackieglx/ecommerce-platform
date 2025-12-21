@@ -32,9 +32,25 @@
         <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
 
+    <!-- Kafka for SKU upsert events -->
+    <dependency>
+        <groupId>org.springframework.kafka</groupId>
+        <artifactId>spring-kafka</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
+        <artifactId>common-kafka</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+
     <dependency>
         <groupId>com.lingxiao</groupId>
         <artifactId>common-db</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
+        <artifactId>contracts</artifactId>
         <version>${project.version}</version>
     </dependency>
 
