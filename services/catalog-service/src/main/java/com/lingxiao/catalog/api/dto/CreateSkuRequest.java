@@ -8,6 +8,7 @@ public record CreateSkuRequest(
         @NotBlank String productId,
         @NotBlank String title,
         @NotBlank String status,
+        @NotBlank String brand,
         @Min(0) long priceCents,
         @NotBlank String currency
 ) {

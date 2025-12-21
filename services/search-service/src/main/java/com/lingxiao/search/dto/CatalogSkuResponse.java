@@ -1,8 +1,8 @@
-package com.lingxiao.catalog.api.dto;
+package com.lingxiao.search.dto;
 
 import java.time.Instant;
 
-public record SkuResponse(
+public record CatalogSkuResponse(
         String skuId,
         String productId,
         String title,

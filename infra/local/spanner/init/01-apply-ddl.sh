@@ -8,7 +8,7 @@ PROJECT="${SPANNER_PROJECT:-local-project}"
 INSTANCE="${SPANNER_INSTANCE:-local-instance}"
 DATABASE="${SPANNER_DATABASE:-local-db}"
 
-REST_ENDPOINT="${SPANNER_EMULATOR_REST_ENDPOINT:-http://spanner:9020}"
+REST_ENDPOINT="${SPANNER_EMULATOR_REST_ENDPOINT:-http://spanner:9020/}"
 
 # Use an isolated gcloud config so we don't pollute defaults
 export CLOUDSDK_CONFIG="$(mktemp -d)"

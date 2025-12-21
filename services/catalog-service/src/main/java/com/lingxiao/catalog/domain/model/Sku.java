@@ -7,6 +7,7 @@ public record Sku(
         String productId,
         String title,
         String status,
+        String brand,
         long priceCents,
         String currency,
         Instant createdAt,

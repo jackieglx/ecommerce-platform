@@ -37,6 +37,7 @@ public class SpannerSkuRepository extends BaseRepositorySupport implements SkuRe
                 .set("ProductId").to(request.productId())
                 .set("Title").to(request.title())
                 .set("Status").to(request.status())
+                .set("Brand").to(request.brand())
                 .set("PriceCents").to(request.priceCents())
                 .set("Currency").to(request.currency())
                 .set("CreatedAt").to(Value.COMMIT_TIMESTAMP)
@@ -66,7 +67,7 @@ public class SpannerSkuRepository extends BaseRepositorySupport implements SkuRe
         try {
             return inReadOnly(tx -> {
                 Statement stmt = Statement.newBuilder(
-                                "SELECT SkuId, ProductId, Title, Status, PriceCents, Currency, CreatedAt, UpdatedAt " +
+                                "SELECT SkuId, ProductId, Title, Status, Brand, PriceCents, Currency, CreatedAt, UpdatedAt " +
                                         "FROM Skus WHERE SkuId IN UNNEST(@ids)")
                         .bind("ids").toStringArray(skuIds)
                         .build();
@@ -85,7 +86,7 @@ public class SpannerSkuRepository extends BaseRepositorySupport implements SkuRe
 
     private Optional<Sku> loadById(ReadContext tx, String skuId) {
         Statement stmt = Statement.newBuilder(
-                        "SELECT SkuId, ProductId, Title, Status, PriceCents, Currency, CreatedAt, UpdatedAt " +
+                        "SELECT SkuId, ProductId, Title, Status, Brand, PriceCents, Currency, CreatedAt, UpdatedAt " +
                                 "FROM Skus WHERE SkuId = @id")
                 .bind("id").to(skuId)
                 .build();
@@ -103,6 +104,7 @@ public class SpannerSkuRepository extends BaseRepositorySupport implements SkuRe
                 rs.getString("ProductId"),
                 rs.getString("Title"),
                 rs.getString("Status"),
+                rs.isNull("Brand") ? "" : rs.getString("Brand"),
                 rs.getLong("PriceCents"),
                 rs.getString("Currency"),
                 Instant.ofEpochSecond(rs.getTimestamp("CreatedAt").getSeconds(), rs.getTimestamp("CreatedAt").getNanos()),

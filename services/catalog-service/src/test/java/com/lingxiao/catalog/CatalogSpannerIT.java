@@ -40,6 +40,7 @@ class CatalogSpannerIT {
                 productId,
                 "Test Title",
                 "ACTIVE",
+                "Apple",
                 1299,
                 "USD"
         );

@@ -1,8 +1,8 @@
-package com.lingxiao.catalog.api.dto;
+package com.lingxiao.search.api.dto;
 
 import java.time.Instant;
 
-public record SkuResponse(
+public record SearchResponseItem(
         String skuId,
         String productId,
         String title,
@@ -10,6 +10,7 @@ public record SkuResponse(
         String brand,
         long priceCents,
         String currency,
+        long sales7d,
         Instant createdAt,
         Instant updatedAt
 ) {

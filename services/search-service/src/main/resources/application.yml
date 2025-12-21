@@ -1,0 +1,25 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: search-service
+
+catalog:
+  base-url: http://localhost:8080
+
+search:
+  elasticsearch:
+    url: http://localhost:9200
+  index:
+    name: products_v1
+    refresh: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

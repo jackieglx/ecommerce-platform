@@ -60,6 +60,7 @@ public class SkuAppService {
                 sku.productId(),
                 sku.title(),
                 sku.status(),
+                sku.brand(),
                 sku.priceCents(),
                 sku.currency(),
                 sku.createdAt(),

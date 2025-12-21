@@ -17,5 +17,12 @@ curl -sSf -XPUT "${ES_URL}/_index_template/products_v1" \
   -H "Content-Type: application/json" \
   --data-binary @elasticsearch/index-templates/products_v1.json
 
+echo "Ensuring products_v1 index exists"
+if ! curl -sf "${ES_URL}/products_v1" > /dev/null; then
+  curl -sSf -XPUT "${ES_URL}/products_v1" \
+    -H "Content-Type: application/json" \
+    --data-binary @elasticsearch/mappings/products_v1.json
+fi
+
 echo "Done."
 
