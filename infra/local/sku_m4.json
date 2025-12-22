@@ -1,0 +1,9 @@
+{
+  "skuId": "sku_m4_1",
+  "productId": "prod_1",
+  "title": "iPhone 15 Pro",
+  "status": "ACTIVE",
+  "brand": "Apple",
+  "priceCents": 139900,
+  "currency": "USD"
+}

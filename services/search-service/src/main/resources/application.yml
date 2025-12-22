@@ -10,9 +10,13 @@ spring:
       group-id: search-service-sku-upserted
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-    properties:
-      spring.json.value.default.type: com.lingxiao.contracts.events.SkuUpsertedEvent
-      spring.json.trusted.packages: com.lingxiao.contracts.events
+      properties:
+        spring.json.value.default.type: com.lingxiao.contracts.events.SkuUpsertedEvent
+        spring.json.trusted.packages: com.lingxiao.contracts.events
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 catalog:
   base-url: ${CATALOG_BASE_URL:http://localhost:8080}
@@ -22,6 +26,8 @@ search:
     host: ${ELASTICSEARCH_URL:http://localhost:9200}
   index: ${SEARCH_INDEX:products_v1}
   index-refresh: ${SEARCH_INDEX_REFRESH:true}
+  idempotency:
+    ttl: PT30M
 
 management:
   endpoints:
@@ -31,3 +37,7 @@ management:
   endpoint:
     health:
       show-details: always
+
+logging:
+  level:
+    com.lingxiao.search.messaging: DEBUG

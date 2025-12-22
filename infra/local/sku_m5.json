@@ -1,0 +1,9 @@
+﻿{
+  "skuId":"sku_1",
+  "productId":"prod_1",
+  "title":"iPhone 15",
+  "status":"ACTIVE",
+  "brand":"Apple",
+  "priceCents":129900,
+  "currency":"USD"
+}
