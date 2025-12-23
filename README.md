@@ -117,6 +117,7 @@ PUT products_v1
 #   - search-service : 8081
 # =========================
 
+
 # 1) 启动本地依赖（Spanner Emulator / Kafka / Redis / Elasticsearch / spanner-tools）
 #    目的：把本地运行所需的基础设施都拉起来（后台运行）
 docker compose -f infra/local/docker-compose.yml up -d
@@ -386,6 +387,41 @@ curl.exe -sS "http://localhost:8081/search?q=iphone&page=1&size=20"
 
 - **重复下单不会多扣库存**：同 clientOrderId 调 2 次，返回同 orderId，库存只扣一次
 - **并发不超卖**：两个人同时买最后 1 件，一个成功一个失败（这是你最硬的亮点）
+
+
+
+
+
+## Milestone 6 可以怎么拆
+
+### 6.0：Inventory 强一致扣减（先把最难的打穿）
+
+- 表：`Inventory(skuId, available, reserved, updatedAt...)`
+- 接口：`POST /inventory/reserve`（orderId + items）/ `POST /inventory/release`
+- Spanner 事务：检查 available >= qty，然后扣减/增加 reserved（或直接扣 available）
+
+### 6.1：Order-service 状态机 + 幂等
+
+- 表：`Orders(orderId, clientOrderId, userId, status, totalAmount, createdAt...)`
+- 订单创建：写 CREATED → 调 inventory reserve 成功 → 更新 RESERVED
+- 失败补偿：reserve 失败就订单标记 FAILED/CANCELED（你选一种简单的）
+
+### 6.2：Payment stub（让闭环跑起来）
+
+- confirm：把订单从 RESERVED → PAID
+- cancel：从 CREATED/RESERVED → CANCELED，并调用 inventory release
+
+------
+
+## Cart 放到 Milestone 7 怎么做最稳
+
+Cart 不用复杂化：
+
+- 数据可以先放 **Redis Hash** 或 Spanner 都行（你喜欢强一致就放 Spanner；想快就 Redis）。
+- Cart 的 checkout 输出 **items 列表**，最终还是调用 `POST /orders`。
+- 这样你的 Order API 永远稳定，Cart 只是一个“入口来源”。
+
+
 
 
 

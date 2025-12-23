@@ -1,0 +1,67 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: inventory-service
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+
+    producer:
+      acks: all
+      retries: 2147483647
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: 120000
+        request.timeout.ms: 30000
+        spring.json.add.type.headers: true
+
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.lingxiao.contracts.events,com.lingxiao.contracts"
+        spring.json.value.default.type: com.lingxiao.contracts.events.FlashSaleReservedEvent
+
+spanner:
+  project-id: ${SPANNER_PROJECT:local-project}
+  instance-id: ${SPANNER_INSTANCE:local-instance}
+  database-id: ${SPANNER_DATABASE:local-db}
+  emulator-enabled: ${SPANNER_EMULATOR_ENABLED:true}
+  emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
+
+inventory:
+  reservation:
+    ttl: PT15M
+  flashsale:
+    stock-prefix: "fs:stock:"
+    buyers-prefix: "fs:buyers:"
+    idempotency-prefix: "fs:order:"
+    hash-tag: "fs"
+    lua-timeout: 2000
+    outbox:
+      stream-key: "fs:outbox:{fs}:flashsale-reserved"
+      group: "fs-publisher"
+      consumer: "fs-pub-1"
+      batch-size: 50
+      retry:
+        base-ms: 500
+        cap-ms: 60000
+        max-attempts: 5
+    idempotency-ttl: PT2H
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
