@@ -191,6 +191,27 @@ curl.exe -sS "http://localhost:8081/search?q=iphone&page=1&size=20"
 
 
 
+# 可以improve
+
+ **如果你想在 Spring Data Redis 这套高层 API 里直接调用 `XAUTOCLAIM`：做不到**——目前 Spring Data Redis 还没把它封装进 `StreamOperations/RedisStreamCommands` 的高层接口里（官方也有人提过要加支持）。 [GitHub](https://github.com/spring-projects/spring-data-redis/issues/2316)
+
+所以你要用 `XAUTOCLAIM`，常见有 3 条路：
+
+1）用 Redisson（最省事）
+
+Redisson 已经把 `XAUTOCLAIM` 映射成 `RStream.autoClaim()` 了。 [Redisson](https://redisson.pro/docs/commands-mapping/)
+优点：API 直接、工程上省心。缺点：你要引入/维护一套新的 Redis client（连接、序列化、配置要统一）。
+
+3）不使用 XAUTOCLAIM，维持 `XPENDING + XCLAIM`
+
+Redis 官方也说了：`XAUTOCLAIM` 本质等价于 `XPENDING` 然后 `XCLAIM`，只是更方便、带 scan 语义。 [Redis](https://redis.io/docs/latest/commands/xautoclaim/)
+
+
+
+另外一个前提：`XAUTOCLAIM` 需要 Redis Server **6.2.0+** 才有。
+
+
+
 # Milestone
 
 ## Milestone 4：Catalog 写入后自动索引（事件驱动 Indexing）

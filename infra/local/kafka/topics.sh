@@ -16,6 +16,10 @@ TOPICS=(
   "sales-item-events:6"
   "order-timeout-schedule:6"
   "order-timeout-dlt:3"
+  "inventory.flashsale-reserved.v1:6"
+  "inventory.flashsale-reserved.dlq.v1:3"
+  "inventory.flashsale-reserved.v2:6"
+  "inventory.flashsale-reserved.dlq.v2:3"
 )
 
 for entry in "${TOPICS[@]}"; do

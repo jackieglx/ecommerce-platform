@@ -1,0 +1,31 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: order-service
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:order-flashsale-v2}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.lingxiao.contracts.events,com.lingxiao.contracts"
+        spring.json.value.default.type: com.lingxiao.contracts.events.FlashSaleReservedEventV2
+
+spanner:
+  project-id: ${SPANNER_PROJECT:local-project}
+  instance-id: ${SPANNER_INSTANCE:local-instance}
+  database-id: ${SPANNER_DATABASE:local-db}
+  emulator-enabled: ${SPANNER_EMULATOR_ENABLED:true}
+  emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
