@@ -26,6 +26,7 @@ spring:
         spring.json.add.type.headers: true
 
     consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:inventory-flashsale-reserved}
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer

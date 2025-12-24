@@ -1,9 +1,9 @@
 package com.lingxiao.inventory.metrics;
 
+import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.stream.PendingMessagesSummary;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,11 +29,10 @@ public class FlashSaleMetrics {
 
     public FlashSaleMetrics(MeterRegistry registry,
                             StringRedisTemplate redisTemplate,
-                            @Value("${inventory.flashsale.outbox.stream-key:fs:outbox:flashsale-reserved}") String streamKey,
-                            @Value("${inventory.flashsale.outbox.group:fs-publisher}") String group) {
+                            FlashSaleOutboxProperties outboxProperties) {
         this.redisTemplate = redisTemplate;
-        this.streamKey = streamKey;
-        this.group = group;
+        this.streamKey = outboxProperties.streamKey();
+        this.group = outboxProperties.group();
 
         this.publisherSuccess = Counter.builder("flashsale.publisher.kafka.success").register(registry);
         this.publisherFail = Counter.builder("flashsale.publisher.kafka.fail").register(registry);

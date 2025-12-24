@@ -2,11 +2,11 @@ package com.lingxiao.inventory.messaging;
 
 import com.lingxiao.contracts.Topics;
 import com.lingxiao.contracts.events.FlashSaleReservedEvent;
+import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
 import com.lingxiao.inventory.metrics.FlashSaleMetrics;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -45,18 +45,17 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
     public FlashSaleOutboxPublisher(StringRedisTemplate redisTemplate,
                                     KafkaTemplate<String, FlashSaleReservedEvent> kafkaTemplate,
                                     FlashSaleMetrics metrics,
-                                    @Value("${inventory.flashsale.outbox.stream-key:fs:outbox:}") String streamKey,
-                                    @Value("${inventory.flashsale.outbox.group:fs-publisher}") String group,
-                                    @Value("${inventory.flashsale.outbox.consumer:fs-pub-1}") String consumerName,
-                                    @Value("${inventory.flashsale.outbox.batch-size:50}") int batchSize,
-                                    @Value("${inventory.flashsale.outbox.retry.base-ms:500}") long retryBaseMs,
-                                    @Value("${inventory.flashsale.outbox.retry.cap-ms:60000}") long retryCapMs,
-                                    @Value("${inventory.flashsale.outbox.retry.max-attempts:5}") int maxAttempts,
-                                    @Value("${inventory.flashsale.outbox.max-in-flight:100}") int maxInFlight) {
+                                    FlashSaleOutboxProperties outboxProperties,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.consumer:fs-pub-1}") String consumerName,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.batch-size:50}") int batchSize,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.retry.base-ms:500}") long retryBaseMs,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.retry.cap-ms:60000}") long retryCapMs,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.retry.max-attempts:5}") int maxAttempts,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.max-in-flight:100}") int maxInFlight) {
         this.redisTemplate = redisTemplate;
         this.kafkaTemplate = kafkaTemplate;
-        this.streamKey = streamKey;
-        this.group = group;
+        this.streamKey = outboxProperties.streamKey();
+        this.group = outboxProperties.group();
         this.consumerName = consumerName;
         this.batchSize = batchSize;
         this.retryBaseMs = retryBaseMs;

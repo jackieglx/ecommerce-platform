@@ -1,5 +1,6 @@
 package com.lingxiao.inventory.application;
 
+import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
 import com.lingxiao.inventory.infrastructure.redis.FlashSaleRedisRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,17 +21,17 @@ public class FlashSaleAppService {
     private final Duration orderTtl;
 
     public FlashSaleAppService(FlashSaleRedisRepository redisRepo,
+                               FlashSaleOutboxProperties outboxProperties,
                                @Value("${inventory.flashsale.stock-prefix:fs:stock:}") String stockPrefix,
                                @Value("${inventory.flashsale.buyers-prefix:fs:buyers:}") String buyersPrefix,
                                @Value("${inventory.flashsale.idempotency-prefix:fs:order:}") String orderPrefix,
-                               @Value("${inventory.flashsale.outbox.stream-key:fs:outbox:flashsale-reserved}") String streamKey,
                                @Value("${inventory.flashsale.hash-tag:fs}") String hashTag,
                                @Value("${inventory.reservation.ttl:PT15M}") Duration orderTtl) {
         this.redisRepo = redisRepo;
         this.stockPrefix = stockPrefix;
         this.buyersPrefix = buyersPrefix;
         this.orderPrefix = orderPrefix;
-        this.streamKey = streamKey;
+        this.streamKey = outboxProperties.streamKey();
         this.hashTag = hashTag;
         this.orderTtl = orderTtl;
     }
