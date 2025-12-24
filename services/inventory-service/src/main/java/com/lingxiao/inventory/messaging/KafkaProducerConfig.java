@@ -1,6 +1,6 @@
 package com.lingxiao.inventory.messaging;
 
-import com.lingxiao.contracts.events.FlashSaleReservedEvent;
+import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
@@ -18,12 +18,12 @@ import java.util.Map;
 public class KafkaProducerConfig {
 
     @Bean
-    public KafkaTemplate<String, FlashSaleReservedEvent> flashSaleKafkaTemplate(ProducerFactory<String, FlashSaleReservedEvent> pf) {
+    public KafkaTemplate<String, FlashSaleReservedEventV2> flashSaleKafkaTemplate(ProducerFactory<String, FlashSaleReservedEventV2> pf) {
         return new KafkaTemplate<>(pf);
     }
 
     @Bean
-    public ProducerFactory<String, FlashSaleReservedEvent> flashSaleProducerFactory(KafkaProperties properties) {
+    public ProducerFactory<String, FlashSaleReservedEventV2> flashSaleProducerFactory(KafkaProperties properties) {
         Map<String, Object> configs = new HashMap<>(properties.buildProducerProperties());
         configs.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         configs.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);

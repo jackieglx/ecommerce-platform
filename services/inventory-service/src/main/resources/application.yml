@@ -32,7 +32,7 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "com.lingxiao.contracts.events,com.lingxiao.contracts"
-        spring.json.value.default.type: com.lingxiao.contracts.events.FlashSaleReservedEvent
+        spring.json.value.default.type: com.lingxiao.contracts.events.FlashSaleReservedEventV2
 
 spanner:
   project-id: ${SPANNER_PROJECT:local-project}
@@ -49,12 +49,14 @@ inventory:
     buyers-prefix: "fs:buyers:"
     idempotency-prefix: "fs:order:"
     hash-tag: "fs"
+    payment-timeout: PT5M
     lua-timeout: 2000
     outbox:
       stream-key: "fs:outbox:{fs}:flashsale-reserved"
       group: "fs-publisher"
       consumer: "fs-pub-1"
       batch-size: 50
+      pending-idle-ms: 30000
       retry:
         base-ms: 500
         cap-ms: 60000

@@ -9,6 +9,9 @@
 -- ARGV[5] = orderId
 -- ARGV[6] = skuId
 -- ARGV[7] = occurredAt
+-- ARGV[8] = priceCents
+-- ARGV[9] = currency
+-- ARGV[10] = expireAt
 
 local stockKey = KEYS[1]
 local buyersKey = KEYS[2]
@@ -21,6 +24,9 @@ local eventId = ARGV[4]
 local orderId = ARGV[5]
 local skuId = ARGV[6]
 local occurredAt = ARGV[7]
+local priceCents = ARGV[8]
+local currency = ARGV[9]
+local expireAt = ARGV[10]
 
 -- idempotency: if orderKey exists, treat as duplicate
 if orderKey and orderKey ~= '' then
@@ -48,10 +54,13 @@ if streamKey and streamKey ~= '' then
   redis.call('XADD', streamKey, 'MAXLEN', '~', 100000, '*',
     'eventId', eventId,
     'orderId', orderId,
+    'userId', userId,
     'skuId', skuId,
     'qty', qty,
+    'priceCents', priceCents,
+    'currency', currency,
     'occurredAt', occurredAt,
-    'userId', userId
+    'expireAt', expireAt
   )
 end
 

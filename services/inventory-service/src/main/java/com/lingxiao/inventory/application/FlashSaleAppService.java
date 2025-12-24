@@ -19,6 +19,7 @@ public class FlashSaleAppService {
     private final String streamKey;
     private final String hashTag;
     private final Duration orderTtl;
+    private final Duration paymentTimeout;
 
     public FlashSaleAppService(FlashSaleRedisRepository redisRepo,
                                FlashSaleOutboxProperties outboxProperties,
@@ -26,7 +27,8 @@ public class FlashSaleAppService {
                                @Value("${inventory.flashsale.buyers-prefix:fs:buyers:}") String buyersPrefix,
                                @Value("${inventory.flashsale.idempotency-prefix:fs:order:}") String orderPrefix,
                                @Value("${inventory.flashsale.hash-tag:fs}") String hashTag,
-                               @Value("${inventory.reservation.ttl:PT15M}") Duration orderTtl) {
+                               @Value("${inventory.reservation.ttl:PT15M}") Duration orderTtl,
+                               @Value("${inventory.flashsale.payment-timeout:PT5M}") Duration paymentTimeout) {
         this.redisRepo = redisRepo;
         this.stockPrefix = stockPrefix;
         this.buyersPrefix = buyersPrefix;
@@ -34,9 +36,15 @@ public class FlashSaleAppService {
         this.streamKey = outboxProperties.streamKey();
         this.hashTag = hashTag;
         this.orderTtl = orderTtl;
+        this.paymentTimeout = paymentTimeout;
     }
 
-    public FlashSaleResult reserve(String orderId, String skuId, String userId, long qty) {
+    public FlashSaleResult reserve(String orderId,
+                                   String skuId,
+                                   String userId,
+                                   long qty,
+                                   long priceCents,
+                                   String currency) {
         // Use a constant hash tag to keep all keys in the same slot (cluster-safe)
         String tag = "{" + hashTag + "}";
         String stockKey = stockPrefix + tag + ":" + skuId;
@@ -45,9 +53,14 @@ public class FlashSaleAppService {
 
         String eventId = UUID.randomUUID().toString();
         Instant occurredAt = Instant.now();
+        Instant expireAt = occurredAt.plus(paymentTimeout);
 
-        long res = redisRepo.execute(stockKey, buyersKey, orderKey, streamKey, userId, qty, orderTtl,
-                eventId, orderId, skuId, occurredAt.toString());
+        long res = redisRepo.execute(
+                stockKey, buyersKey, orderKey, streamKey,
+                userId, qty, orderTtl,
+                eventId, orderId, skuId, occurredAt.toString(),
+                priceCents, currency, expireAt.toString()
+        );
         FlashSaleResult result;
         if (res == 1) {
             result = new FlashSaleResult(true, false, false);

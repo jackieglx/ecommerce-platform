@@ -34,7 +34,10 @@ public class FlashSaleRedisRepository {
                         String eventId,
                         String orderId,
                         String skuId,
-                        String occurredAt) {
+                        String occurredAt,
+                        long priceCents,
+                        String currency,
+                        String expireAt) {
         Long res = redisTemplate.execute(
                 script,
                 List.of(stockKey, buyersKey, orderKey, streamKey),
@@ -44,7 +47,10 @@ public class FlashSaleRedisRepository {
                 eventId,
                 orderId,
                 skuId,
-                occurredAt
+                occurredAt,
+                Long.toString(priceCents),
+                currency,
+                expireAt
         );
         return res == null ? -99 : res;
     }

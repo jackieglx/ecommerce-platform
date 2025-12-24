@@ -29,12 +29,14 @@ public class InternalFlashSaleController {
             @NotBlank String orderId,
             @NotBlank String skuId,
             @NotBlank String userId,
-            @Min(1) long qty
+            @Min(1) long qty,
+            @Min(0) long priceCents,
+            @NotBlank String currency
     ) {}
 
     @PostMapping("/reserve")
     public ResponseEntity<Map<String, Object>> reserve(@RequestBody @Validated FlashSaleRequest req) {
-        var result = service.reserve(req.orderId(), req.skuId(), req.userId(), req.qty());
+        var result = service.reserve(req.orderId(), req.skuId(), req.userId(), req.qty(), req.priceCents(), req.currency());
         return ResponseEntity.ok(Map.of(
                 "success", result.success(),
                 "duplicate", result.duplicate(),

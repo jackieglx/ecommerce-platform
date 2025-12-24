@@ -1,14 +1,23 @@
 package com.lingxiao.inventory.messaging;
 
 import com.lingxiao.contracts.Topics;
-import com.lingxiao.contracts.events.FlashSaleReservedEvent;
+import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
 import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
 import com.lingxiao.inventory.metrics.FlashSaleMetrics;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.data.redis.connection.stream.*;
+import org.springframework.data.redis.connection.stream.Consumer;
+import org.springframework.data.redis.connection.stream.MapRecord;
+import org.springframework.data.redis.connection.stream.PendingMessage;
+import org.springframework.data.redis.connection.stream.PendingMessages;
+import org.springframework.data.redis.connection.stream.ReadOffset;
+import org.springframework.data.redis.connection.stream.StreamOffset;
+import org.springframework.data.redis.connection.stream.StreamReadOptions;
+import org.springframework.data.redis.connection.stream.StreamRecords;
+import org.springframework.data.domain.Range;
+import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.stream.StreamListener;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -28,7 +37,7 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
     private static final Logger log = LoggerFactory.getLogger(FlashSaleOutboxPublisher.class);
 
     private final StringRedisTemplate redisTemplate;
-    private final KafkaTemplate<String, FlashSaleReservedEvent> kafkaTemplate;
+    private final KafkaTemplate<String, FlashSaleReservedEventV2> kafkaTemplate;
 
     private final String streamKey;
     private final String group;
@@ -41,9 +50,10 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
     private final String retryNextPrefix;
     private final Semaphore inFlight;
     private final FlashSaleMetrics metrics;
+    private final long pendingIdleMs;
 
     public FlashSaleOutboxPublisher(StringRedisTemplate redisTemplate,
-                                    KafkaTemplate<String, FlashSaleReservedEvent> kafkaTemplate,
+                                    KafkaTemplate<String, FlashSaleReservedEventV2> kafkaTemplate,
                                     FlashSaleMetrics metrics,
                                     FlashSaleOutboxProperties outboxProperties,
                                     @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.consumer:fs-pub-1}") String consumerName,
@@ -51,7 +61,8 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
                                     @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.retry.base-ms:500}") long retryBaseMs,
                                     @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.retry.cap-ms:60000}") long retryCapMs,
                                     @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.retry.max-attempts:5}") int maxAttempts,
-                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.max-in-flight:100}") int maxInFlight) {
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.max-in-flight:100}") int maxInFlight,
+                                    @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.outbox.pending-idle-ms:30000}") long pendingIdleMs) {
         this.redisTemplate = redisTemplate;
         this.kafkaTemplate = kafkaTemplate;
         this.streamKey = outboxProperties.streamKey();
@@ -65,6 +76,7 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
         this.retryNextPrefix = "fs:retry:next:";
         this.inFlight = new Semaphore(maxInFlight);
         this.metrics = metrics;
+        this.pendingIdleMs = pendingIdleMs;
         ensureGroup();
     }
 
@@ -72,7 +84,13 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
         try {
             redisTemplate.opsForStream().createGroup(streamKey, ReadOffset.from("0-0"), group);
         } catch (Exception e) {
-            // BUSYGROUP is fine
+            // If stream not found, create a dummy entry then create group
+            try {
+                redisTemplate.opsForStream().add(StreamRecords.mapBacked(Map.of("init", "1")).withStreamKey(streamKey));
+                redisTemplate.opsForStream().createGroup(streamKey, ReadOffset.from("0-0"), group);
+            } catch (Exception inner) {
+                // BUSYGROUP or other errors can be ignored; polling will surface issues if any
+            }
         }
     }
 
@@ -94,6 +112,36 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
                 StreamOffset.create(streamKey, ReadOffset.from("0-0"))
         );
         handleMessages(pending);
+
+        claimStalePending();
+    }
+
+    private void claimStalePending() {
+        try {
+            PendingMessages pending = redisTemplate.opsForStream()
+                    .pending(streamKey, group, Range.unbounded(), batchSize);
+
+            if (pending == null || pending.isEmpty()) {
+                return;
+            }
+
+            // PendingMessage -> RecordId[]
+            RecordId[] recordIds = pending.stream()
+                    .map(PendingMessage::getIdAsString)
+                    .map(RecordId::of)
+                    .toArray(RecordId[]::new);
+
+            if (recordIds.length == 0) {
+                return;
+            }
+
+            List<MapRecord<String, Object, Object>> claimed = redisTemplate.opsForStream()
+                    .claim(streamKey, group, consumerName, Duration.ofMillis(pendingIdleMs), recordIds);
+
+            handleMessages(claimed);
+        } catch (Exception e) {
+            log.warn("Pending claim failed for stream={} group={} consumer={}", streamKey, group, consumerName, e);
+        }
     }
 
     private void handleMessages(List<MapRecord<String, Object, Object>> records) {
@@ -109,9 +157,9 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
             if (!readyToProcess(eventId, System.currentTimeMillis())) {
                 continue;
             }
-            FlashSaleReservedEvent event = toEvent(record.getValue());
+            FlashSaleReservedEventV2 event = toEvent(record.getValue());
             inFlight.acquireUninterruptibly();
-                kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED, event.skuId(), event))
+                kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_V2, event.skuId(), event))
                     .whenComplete((res, ex) -> {
                         if (ex != null) {
                             handleFailure(record, eventId, ex);
@@ -179,8 +227,8 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
 
     private boolean sendDlq(MapRecord<String, Object, Object> record) {
         try {
-            FlashSaleReservedEvent event = toEvent(record.getValue());
-            kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_DLQ, event.skuId(), event)).get();
+            FlashSaleReservedEventV2 event = toEvent(record.getValue());
+            kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_DLQ_V2, event.skuId(), event)).get();
             return true;
         } catch (Exception e) {
             log.error("Failed to send DLQ for record {}", record.getId(), e);
@@ -197,13 +245,17 @@ public class FlashSaleOutboxPublisher implements StreamListener<String, MapRecor
         }
     }
 
-    private FlashSaleReservedEvent toEvent(Map<Object, Object> map) {
-        return new FlashSaleReservedEvent(
+    private FlashSaleReservedEventV2 toEvent(Map<Object, Object> map) {
+        return new FlashSaleReservedEventV2(
                 toStr(map.get("eventId")),
                 toStr(map.get("orderId")),
+                toStr(map.get("userId")),
                 toStr(map.get("skuId")),
                 Long.parseLong(toStrOrDefault(map.get("qty"), "1")),
-                Instant.parse(toStr(map.get("occurredAt")))
+                Long.parseLong(toStrOrDefault(map.get("priceCents"), "0")),
+                toStr(map.get("currency")),
+                Instant.parse(toStr(map.get("occurredAt"))),
+                Instant.parse(toStr(map.get("expireAt")))
         );
     }
 

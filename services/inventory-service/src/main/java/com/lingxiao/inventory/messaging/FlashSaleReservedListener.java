@@ -2,7 +2,7 @@ package com.lingxiao.inventory.messaging;
 
 import com.lingxiao.common.redis.IdempotencyStore;
 import com.lingxiao.contracts.Topics;
-import com.lingxiao.contracts.events.FlashSaleReservedEvent;
+import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
 import com.lingxiao.inventory.metrics.FlashSaleMetrics;
 import com.lingxiao.inventory.infrastructure.db.spanner.InventoryRepository;
 import org.slf4j.Logger;
@@ -34,8 +34,8 @@ public class FlashSaleReservedListener {
         this.metrics = metrics;
     }
 
-    @KafkaListener(topics = Topics.FLASH_SALE_RESERVED)
-    public void onMessage(FlashSaleReservedEvent event) {
+    @KafkaListener(topics = Topics.FLASH_SALE_RESERVED_V2)
+    public void onMessage(FlashSaleReservedEventV2 event) {
         String key = "idem:v1:inventory:flashsale:" + event.eventId();
         try {
             boolean acquired = idempotencyStore.tryAcquire(key, event.orderId(), idempotencyTtl);
