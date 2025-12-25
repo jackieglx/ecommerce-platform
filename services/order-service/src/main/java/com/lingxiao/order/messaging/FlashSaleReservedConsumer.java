@@ -2,6 +2,9 @@ package com.lingxiao.order.messaging;
 
 import com.lingxiao.contracts.Topics;
 import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
+import com.lingxiao.common.idempotency.DoneAction;
+import com.lingxiao.common.idempotency.Idempotent;
+import com.lingxiao.common.idempotency.ProcessingAction;
 import com.lingxiao.order.application.OrderAppService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +23,14 @@ public class FlashSaleReservedConsumer {
     }
 
     @KafkaListener(topics = Topics.FLASH_SALE_RESERVED_V2)
+    @Idempotent(
+            eventType = "flashsale_reserved_v2",
+            id = "#event.eventId()",
+            onProcessing = ProcessingAction.RETRY,
+            onDone = DoneAction.ACK,
+            processingTtl = "PT30S",
+            doneTtl = "PT2H"
+    )
     public void onMessage(FlashSaleReservedEventV2 event) {
         try {
             appService.handleFlashSaleReservation(event);

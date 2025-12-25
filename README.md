@@ -444,6 +444,31 @@ Cart 不用复杂化：
 
 
 
+## 下一步
+
+1. **order-service** 已经通过 `FlashSaleReservedEventV2` 异步建单
+
+- `Status = PENDING_PAYMENT`
+- `ExpireAt = occurredAt + 5m`（或事件自带）
+
+1. 用户拿到“预占成功”的响应后，调用 **payment-service**：
+
+- `POST /payments`（或 `/internal/payments/confirm` 也行）
+
+1. **payment-service**：
+
+- 做最小校验（订单是否存在、是否仍可支付、金额币种是否匹配）
+- 写一条 payment 记录（保证幂等）
+- 发 Kafka：`PaymentConfirmed`（at-least-once）
+
+1. **order-service** 消费 `PaymentConfirmed`：
+
+- 幂等处理
+- 用 CAS（`StatusVersion`）把订单推进到 `PAID`
+- （可选）再发一个 `OrderPaid` 事件给后续履约/通知用
+
+
+
 
 
 # Kafka用什么版本

@@ -46,6 +46,11 @@
         <version>${project.version}</version>
     </dependency>
     <dependency>
+        <groupId>com.lingxiao</groupId>
+        <artifactId>common-idempotency</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+    <dependency>
         <groupId>org.springframework.kafka</groupId>
         <artifactId>spring-kafka</artifactId>
     </dependency>

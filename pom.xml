@@ -30,6 +30,7 @@
         <module>libs/common-kafka</module>
         <module>libs/contracts</module>
         <module>libs/clients</module>
+        <module>libs/common-idempotency</module>
 
         <!-- services -->
         <module>services/gateway-service</module>
@@ -45,6 +46,7 @@
 
         <!-- jobs -->
         <module>jobs/sales-7d-streaming-job</module>
+
     </modules>
 
     <dependencyManagement>
