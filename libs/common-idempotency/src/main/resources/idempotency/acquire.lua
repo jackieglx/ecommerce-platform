@@ -1,9 +1,10 @@
 local key = KEYS[1]
 local processingTtl = tonumber(ARGV[1])
 local token = ARGV[2]
+local payload = ARGV[3] or ""
 
 -- Single atomic attempt to acquire
-local setRes = redis.call("SET", key, "PROCESSING:" .. token, "NX", "EX", processingTtl)
+local setRes = redis.call("SET", key, "PROCESSING:" .. token .. ":" .. payload, "NX", "EX", processingTtl)
 if setRes then
   return "ACQUIRED"
 end
@@ -20,6 +21,10 @@ if val == "DONE" then
 end
 
 if string.sub(val, 1, 5) == "DONE:" then
+  return val
+end
+
+if string.sub(val, 1, 11) == "PROCESSING" then
   return val
 end
 

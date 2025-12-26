@@ -27,10 +27,10 @@ public class RedisIdempotencyStore implements IdempotencyStore {
     }
 
     @Override
-    public AcquireOutcome acquire(String key, String token, Duration processingTtl) {
+    public AcquireOutcome acquire(String key, String token, Duration processingTtl, String payload) {
         long ttlSeconds = Math.max(1, processingTtl.getSeconds());
         String res = redisTemplate.execute(acquireScript, Collections.singletonList(key),
-                Long.toString(ttlSeconds), token);
+                Long.toString(ttlSeconds), token, payload == null ? "" : payload);
         if (res == null) {
             return AcquireOutcome.of(AcquireResult.PROCESSING);
         }
@@ -43,14 +43,22 @@ public class RedisIdempotencyStore implements IdempotencyStore {
         if (res.startsWith("DONE:")) {
             return new AcquireOutcome(AcquireResult.DONE, Optional.of(res.substring("DONE:".length())));
         }
+        if (res.startsWith("PROCESSING:")) {
+            String afterPrefix = res.substring("PROCESSING:".length());
+            int idx = afterPrefix.indexOf(':');
+            String payloadPart = idx >= 0 ? afterPrefix.substring(idx + 1) : "";
+            return new AcquireOutcome(AcquireResult.PROCESSING, Optional.of(payloadPart));
+        }
         return AcquireOutcome.of(AcquireResult.PROCESSING);
     }
 
     @Override
-    public boolean markDone(String key, String token, Duration doneTtl, String resultPointer) {
+    public boolean markDone(String key, String token, Duration doneTtl, String resultPointer, String payload) {
         long ttlSeconds = Math.max(1, doneTtl.getSeconds());
         Long res = redisTemplate.execute(markDoneScript, Collections.singletonList(key),
-                token, Long.toString(ttlSeconds), resultPointer == null ? "" : resultPointer);
+                token, Long.toString(ttlSeconds),
+                resultPointer == null ? "" : resultPointer,
+                payload == null ? "" : payload);
         return Long.valueOf(1L).equals(res);
     }
 

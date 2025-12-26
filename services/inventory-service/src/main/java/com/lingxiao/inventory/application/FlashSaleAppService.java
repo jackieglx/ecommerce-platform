@@ -63,17 +63,17 @@ public class FlashSaleAppService {
         );
         FlashSaleResult result;
         if (res == 1) {
-            result = new FlashSaleResult(true, false, false);
+            result = new FlashSaleResult(true, false, false, expireAt);
         } else if (res == 0) {
-            result = new FlashSaleResult(false, false, true);
+            result = new FlashSaleResult(false, false, true, expireAt);
         } else if (res == -1) {
-            result = new FlashSaleResult(false, true, false);
+            result = new FlashSaleResult(false, true, false, expireAt);
         } else {
-            result = new FlashSaleResult(false, false, false);
+            result = new FlashSaleResult(false, false, false, expireAt);
         }
         return result;
     }
 
-    public record FlashSaleResult(boolean success, boolean duplicate, boolean insufficient) {}
+    public record FlashSaleResult(boolean success, boolean duplicate, boolean insufficient, Instant expireAt) {}
 }
 

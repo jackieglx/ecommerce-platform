@@ -14,6 +14,8 @@ import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.UUID;
 
 @Aspect
@@ -49,6 +51,9 @@ public class IdempotentAspect {
         if (isVoid && anno.onDone() == DoneAction.RETURN_POINTER) {
             throw new IllegalStateException("@Idempotent RETURN_POINTER requires non-void method, method=" + methodName);
         }
+        if (!isVoid && anno.onProcessing() == ProcessingAction.ACK) {
+            throw new IllegalStateException("@Idempotent onProcessing=ACK requires void method, method=" + methodName);
+        }
         if (anno.onDone() == DoneAction.RETURN_POINTER && !StringUtils.hasText(anno.result())) {
             throw new IllegalStateException("@Idempotent onDone=RETURN_POINTER requires non-empty result SpEL, method=" + methodName);
         }
@@ -58,23 +63,46 @@ public class IdempotentAspect {
         String token = UUID.randomUUID().toString();
         Duration processingTtl = durationParser.parse(anno.processingTtl());
         Duration doneTtl = durationParser.parse(anno.doneTtl());
+        String payload = null;
+        if (StringUtils.hasText(anno.payload())) {
+            payload = keyResolver.resolve(method, pjp.getTarget(), pjp.getArgs(), anno.payload());
+        }
 
-        AcquireOutcome acquire = store.acquire(key, token, processingTtl);
+        AcquireOutcome acquire = store.acquire(key, token, processingTtl, payload == null ? "" : Base64.getEncoder().encodeToString(payload.getBytes(StandardCharsets.UTF_8)));
         AcquireResult result = acquire.result();
         if (result == AcquireResult.DONE) {
+            String pointerRaw = acquire.pointer()
+                    .or(() -> store.getDonePointer(key))
+                    .orElse(null);
+            ParsedPointer parsed = parsePointer(pointerRaw);
+            String expectedPayload = payload == null ? "" : Base64.getEncoder().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+            String actualPayload = parsed.payloadB64() == null ? "" : parsed.payloadB64();
+            if (!expectedPayload.equals(actualPayload)) {
+                throw new IdempotencyPayloadMismatchException("Idempotent key payload mismatch key=" + key);
+            }
             if (anno.onDone() == DoneAction.THROW) {
                 throw new IdempotencyCompletedException("Idempotent key already done key=" + key);
             }
             if (anno.onDone() == DoneAction.RETURN_POINTER) {
-                return acquire.pointer()
-                        .or(() -> store.getDonePointer(key))
-                        .orElseThrow(() ->
-                                new IdempotencyPointerMissingException("Idempotent key done but no pointer stored key=" + key));
+                if (parsed.pointer == null) {
+                    throw new IdempotencyPointerMissingException("Idempotent key done but no pointer stored key=" + key);
+                }
+                return parsed.pointer;
             }
             log.debug("Idempotent skip DONE key={}", key);
             return null;
         }
         if (result == AcquireResult.PROCESSING) {
+            if (acquire.pointer().isPresent() && payload != null) {
+                String storedPayload = acquire.pointer().get();
+                if (!storedPayload.equals(Base64.getEncoder().encodeToString(payload.getBytes(StandardCharsets.UTF_8)))) {
+                    throw new IdempotencyPayloadMismatchException("Idempotent key payload mismatch (processing) key=" + key);
+                }
+            }
+            if (anno.onProcessing() == ProcessingAction.ACK) {
+                log.debug("Idempotent processing acknowledged key={}", key);
+                return null;
+            }
             throw new IdempotencyInProgressException("Idempotent key processing key=" + key);
         }
 
@@ -88,7 +116,9 @@ public class IdempotentAspect {
                 if (anno.onDone() == DoneAction.RETURN_POINTER && !StringUtils.hasText(pointer)) {
                     throw new IdempotencyMarkDoneFailedException("RETURN_POINTER requires non-empty pointer, key=" + key);
                 }
-                boolean marked = store.markDone(key, token, doneTtl, pointer);
+                String payloadB64 = payload == null ? "" : Base64.getEncoder().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+                String toStore = pointer == null ? "" : pointer;
+                boolean marked = store.markDone(key, token, doneTtl, toStore, payloadB64);
                 if (!marked) {
                     log.warn("Idempotent markDone failed, key={} token={}", key, token);
                     throw new IdempotencyMarkDoneFailedException("Idempotent markDone failed, key=" + key);
@@ -106,5 +136,20 @@ public class IdempotentAspect {
             throw ex;
         }
     }
+
+    private ParsedPointer parsePointer(String raw) {
+        if (raw == null) {
+            return new ParsedPointer("", null);
+        }
+        int idx = raw.indexOf('\n');
+        if (idx >= 0) {
+            String payload = raw.substring(0, idx);
+            String pointer = raw.substring(idx + 1);
+            return new ParsedPointer(payload, pointer);
+        }
+        return new ParsedPointer("", raw);
+    }
+
+    private record ParsedPointer(String payloadB64, String pointer) {}
 }
 

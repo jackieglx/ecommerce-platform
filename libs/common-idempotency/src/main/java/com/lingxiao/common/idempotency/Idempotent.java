@@ -9,6 +9,7 @@ public @interface Idempotent {
     String eventType();
     String id();
     String result() default "";
+    String payload() default "";
     ProcessingAction onProcessing() default ProcessingAction.RETRY;
     DoneAction onDone() default DoneAction.ACK;
     String processingTtl() default "PT30S";
