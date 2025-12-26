@@ -46,6 +46,11 @@
         <artifactId>common-redis</artifactId>
         <version>${project.version}</version>
     </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
+        <artifactId>common-idempotency</artifactId>
+        <version>${project.version}</version>
+    </dependency>
 
     <dependency>
         <groupId>co.elastic.clients</groupId>

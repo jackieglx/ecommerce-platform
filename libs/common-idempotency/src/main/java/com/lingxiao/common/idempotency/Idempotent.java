@@ -8,6 +8,7 @@ import java.lang.annotation.*;
 public @interface Idempotent {
     String eventType();
     String id();
+    String result() default "";
     ProcessingAction onProcessing() default ProcessingAction.RETRY;
     DoneAction onDone() default DoneAction.ACK;
     String processingTtl() default "PT30S";

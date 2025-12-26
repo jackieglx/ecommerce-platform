@@ -9,6 +9,8 @@
     <file url="file://$PROJECT_DIR$/libs/common-core/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/libs/common-db/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/libs/common-db/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-idempotency/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/libs/common-idempotency/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/libs/common-kafka/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/libs/common-kafka/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/libs/common-redis/src/main/java" charset="UTF-8" />

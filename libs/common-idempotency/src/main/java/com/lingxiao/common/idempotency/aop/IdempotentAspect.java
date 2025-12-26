@@ -2,6 +2,7 @@ package com.lingxiao.common.idempotency.aop;
 
 import com.lingxiao.common.idempotency.*;
 import com.lingxiao.common.idempotency.store.AcquireResult;
+import com.lingxiao.common.idempotency.store.AcquireOutcome;
 import com.lingxiao.common.idempotency.store.IdempotencyStore;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -9,6 +10,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
@@ -41,8 +43,14 @@ public class IdempotentAspect {
         Idempotent anno = method.getAnnotation(Idempotent.class);
         boolean isVoid = method.getReturnType().equals(Void.TYPE);
         String methodName = method.getDeclaringClass().getName() + "#" + method.getName();
-        if (!isVoid) {
-            throw new IllegalStateException("@Idempotent only supports void methods, method=" + methodName);
+        if (!isVoid && anno.onDone() != DoneAction.RETURN_POINTER) {
+            throw new IllegalStateException("@Idempotent non-void methods require onDone=RETURN_POINTER, method=" + methodName);
+        }
+        if (isVoid && anno.onDone() == DoneAction.RETURN_POINTER) {
+            throw new IllegalStateException("@Idempotent RETURN_POINTER requires non-void method, method=" + methodName);
+        }
+        if (anno.onDone() == DoneAction.RETURN_POINTER && !StringUtils.hasText(anno.result())) {
+            throw new IllegalStateException("@Idempotent onDone=RETURN_POINTER requires non-empty result SpEL, method=" + methodName);
         }
         String id = keyResolver.resolve(method, pjp.getTarget(), pjp.getArgs(), anno.id());
         String namespace = namespaceProvider.namespace();
@@ -51,10 +59,17 @@ public class IdempotentAspect {
         Duration processingTtl = durationParser.parse(anno.processingTtl());
         Duration doneTtl = durationParser.parse(anno.doneTtl());
 
-        AcquireResult result = store.acquire(key, token, processingTtl);
+        AcquireOutcome acquire = store.acquire(key, token, processingTtl);
+        AcquireResult result = acquire.result();
         if (result == AcquireResult.DONE) {
             if (anno.onDone() == DoneAction.THROW) {
                 throw new IdempotencyCompletedException("Idempotent key already done key=" + key);
+            }
+            if (anno.onDone() == DoneAction.RETURN_POINTER) {
+                return acquire.pointer()
+                        .or(() -> store.getDonePointer(key))
+                        .orElseThrow(() ->
+                                new IdempotencyPointerMissingException("Idempotent key done but no pointer stored key=" + key));
             }
             log.debug("Idempotent skip DONE key={}", key);
             return null;
@@ -66,7 +81,14 @@ public class IdempotentAspect {
         try {
             Object ret = pjp.proceed();
             try {
-                boolean marked = store.markDone(key, token, doneTtl);
+                String pointer = null;
+                if (StringUtils.hasText(anno.result())) {
+                    pointer = keyResolver.resolve(method, pjp.getTarget(), pjp.getArgs(), anno.result(), ret);
+                }
+                if (anno.onDone() == DoneAction.RETURN_POINTER && !StringUtils.hasText(pointer)) {
+                    throw new IdempotencyMarkDoneFailedException("RETURN_POINTER requires non-empty pointer, key=" + key);
+                }
+                boolean marked = store.markDone(key, token, doneTtl, pointer);
                 if (!marked) {
                     log.warn("Idempotent markDone failed, key={} token={}", key, token);
                     throw new IdempotencyMarkDoneFailedException("Idempotent markDone failed, key=" + key);

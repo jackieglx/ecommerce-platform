@@ -16,10 +16,4 @@ public class RedisConfig {
     public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory factory) {
         return new StringRedisTemplate(factory);
     }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public IdempotencyStore idempotencyStore(StringRedisTemplate stringRedisTemplate) {
-        return new IdempotencyStore(stringRedisTemplate);
-    }
 }

@@ -21,6 +21,10 @@ public class SpelKeyResolver {
     private final ParameterNameDiscoverer paramDiscoverer = new DefaultParameterNameDiscoverer();
 
     public String resolve(Method method, Object target, Object[] args, String expr) {
+        return resolve(method, target, args, expr, null);
+    }
+
+    public String resolve(Method method, Object target, Object[] args, String expr, Object result) {
         if (!StringUtils.hasText(expr)) {
             throw new IdempotencyKeyResolveException("Id expression is empty");
         }
@@ -32,6 +36,7 @@ public class SpelKeyResolver {
                 context.setVariable("a" + i, args[i]);
                 context.setVariable("p" + i, args[i]);
             }
+            context.setVariable("result", result);
             Object val = expression.getValue(context);
             if (val == null) {
                 throw new IdempotencyKeyResolveException("Resolved id is null for expr: " + expr);
