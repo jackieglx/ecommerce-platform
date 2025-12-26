@@ -35,6 +35,11 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
+        <artifactId>common-kafka</artifactId>
+        <version>${project.version}</version>
+    </dependency>
         <dependency>
             <groupId>com.lingxiao</groupId>
             <artifactId>common-db</artifactId>

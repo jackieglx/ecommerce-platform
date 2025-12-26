@@ -38,6 +38,11 @@
     </dependency>
     <dependency>
         <groupId>com.lingxiao</groupId>
+        <artifactId>common-kafka</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
         <artifactId>contracts</artifactId>
         <version>${project.version}</version>
     </dependency>
