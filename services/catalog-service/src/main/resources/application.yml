@@ -5,6 +5,13 @@ spring:
   application:
     name: catalog-service
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # 如果你 Redis 需要密码再加：
+      # password: ${REDIS_PASSWORD:}
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:
@@ -18,8 +25,6 @@ spring:
         delivery.timeout.ms: 120000
         retries: 2147483647
 
-# 你 catalog 目前怎么连 spanner emulator 的就保持一致即可；
-# 如果你现在确实是用下面这些 key 生效，就保留。
 spanner:
   project-id: ${SPANNER_PROJECT:local-project}
   instance-id: ${SPANNER_INSTANCE:local-instance}

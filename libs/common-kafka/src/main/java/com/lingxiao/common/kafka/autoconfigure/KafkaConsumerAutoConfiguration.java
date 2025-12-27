@@ -10,7 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -36,15 +36,18 @@ public class KafkaConsumerAutoConfiguration {
 
     @Bean(name = "kafkaListenerContainerFactory")
     @ConditionalOnMissingBean(name = "kafkaListenerContainerFactory")
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(ConsumerFactory.class)
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(prefix = "spring.kafka.consumer", name = "group-id")
     public ConcurrentKafkaListenerContainerFactory<Object, Object> kafkaListenerContainerFactory(
             ConsumerFactory<Object, Object> consumerFactory,
-            @Qualifier("kafkaTemplate") KafkaTemplate<Object, Object> kafkaTemplate,
+            ObjectProvider<KafkaTemplate<?, ?>> kafkaTemplateProvider,
             CommonKafkaProperties props,
             CommonErrorHandlerFactory errorHandlerFactory) {
         if (props.getConsumer().getMaxPollRecords() != null) {
             consumerFactory.updateConfigs(
                     java.util.Map.of(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, props.getConsumer().getMaxPollRecords()));
         }
+        KafkaTemplate<?, ?> kafkaTemplate = kafkaTemplateProvider.getIfAvailable();
         ListenerContainerFactoryProvider provider = new ListenerContainerFactoryProvider(props, errorHandlerFactory);
         RecordMessageConverter converter = null;
         return provider.build(consumerFactory, kafkaTemplate, converter);

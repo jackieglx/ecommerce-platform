@@ -11,6 +11,7 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.BackOff;
 import org.springframework.util.backoff.ExponentialBackOff;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
+import org.springframework.lang.Nullable;
 
 import java.time.Duration;
 import java.util.function.BiFunction;
@@ -25,8 +26,10 @@ public class CommonErrorHandlerFactory {
         this.classifier = classifier;
     }
 
-    public DefaultErrorHandler build(KafkaTemplate<Object, Object> kafkaTemplate) {
-        DeadLetterPublishingRecoverer recoverer = properties.getDlt().isEnabled() ? buildRecoverer(kafkaTemplate) : null;
+    public DefaultErrorHandler build(@Nullable KafkaTemplate<?, ?> kafkaTemplate) {
+        DeadLetterPublishingRecoverer recoverer = (properties.getDlt().isEnabled() && kafkaTemplate != null)
+                ? buildRecoverer(kafkaTemplate)
+                : null;
         DefaultErrorHandler handler = recoverer == null
                 ? new DefaultErrorHandler(mainBackOff())
                 : new DefaultErrorHandler(recoverer, mainBackOff());
@@ -46,7 +49,7 @@ public class CommonErrorHandlerFactory {
         return handler;
     }
 
-    private DeadLetterPublishingRecoverer buildRecoverer(KafkaTemplate<Object, Object> kafkaTemplate) {
+    private DeadLetterPublishingRecoverer buildRecoverer(KafkaTemplate<?, ?> kafkaTemplate) {
         BiFunction<ConsumerRecord<?, ?>, Exception, TopicPartition> resolver = (rec, ex) -> {
             String topic = rec.topic() + properties.getDlt().getSuffix();
             int partition = properties.getDlt().isSamePartition() ? rec.partition() : -1;

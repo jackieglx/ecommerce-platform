@@ -14,13 +14,20 @@ public class FlashSalePricingService {
     private static final Logger log = LoggerFactory.getLogger(FlashSalePricingService.class);
 
     private final RestClient restClient;
+    private final String catalogBaseUrl;
 
     public FlashSalePricingService(@Value("${inventory.flashsale.catalog-base-url:${CATALOG_BASE_URL:http://catalog-service:8080}}") String catalogBaseUrl,
                                    RestClient.Builder builder) {
+        this.catalogBaseUrl = catalogBaseUrl;
         this.restClient = builder.baseUrl(catalogBaseUrl).build();
     }
 
     public Price fetchPrice(String skuId) {
+        String url = org.springframework.web.util.UriComponentsBuilder.fromHttpUrl(catalogBaseUrl)
+                .path("/products/{skuId}")
+                .buildAndExpand(skuId)
+                .toUriString();
+        log.info("Fetching price from url={}", url);
         try {
             CatalogSkuResponse resp = restClient.get()
                     .uri("/products/{skuId}", skuId)

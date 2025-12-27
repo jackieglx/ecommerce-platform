@@ -6,6 +6,7 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.converter.RecordMessageConverter;
+import org.springframework.lang.Nullable;
 
 public class ListenerContainerFactoryProvider {
 
@@ -19,8 +20,8 @@ public class ListenerContainerFactoryProvider {
     }
 
     public ConcurrentKafkaListenerContainerFactory<Object, Object> build(ConsumerFactory<Object, Object> consumerFactory,
-                                                                         KafkaTemplate<Object, Object> kafkaTemplate,
-                                                                         RecordMessageConverter converter) {
+                                                                         @Nullable KafkaTemplate<?, ?> kafkaTemplate,
+                                                                         @Nullable RecordMessageConverter converter) {
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.valueOf(properties.getConsumer().getAckMode()));

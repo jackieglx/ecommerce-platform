@@ -45,6 +45,7 @@ inventory:
   reservation:
     ttl: PT15M
   flashsale:
+    catalog-base-url: http://localhost:8080
     stock-prefix: "fs:stock:"
     buyers-prefix: "fs:buyers:"
     idempotency-prefix: "fs:order:"
