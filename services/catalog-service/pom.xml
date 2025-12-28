@@ -35,6 +35,15 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <dependency>
+        <groupId>com.github.ben-manes.caffeine</groupId>
+        <artifactId>caffeine</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
+        <artifactId>common-redis</artifactId>
+        <version>${project.version}</version>
+    </dependency>
 
     <!-- Kafka for SKU upsert events -->
     <dependency>

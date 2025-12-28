@@ -2,6 +2,7 @@ package com.lingxiao.catalog.infrastructure.db;
 
 import com.lingxiao.catalog.api.dto.CreateSkuRequest;
 import com.lingxiao.catalog.domain.model.Sku;
+import com.lingxiao.catalog.api.dto.UpdateSkuRequest;
 
 import java.util.List;
 
@@ -11,5 +12,7 @@ public interface SkuRepository {
     Sku get(String skuId);
 
     List<Sku> batchGet(List<String> skuIds);
+
+    Sku update(String skuId, UpdateSkuRequest request);
 }
 

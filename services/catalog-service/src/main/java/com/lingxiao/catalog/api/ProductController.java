@@ -1,7 +1,7 @@
 package com.lingxiao.catalog.api;
 
 import com.lingxiao.catalog.api.dto.SkuResponse;
-import com.lingxiao.catalog.application.SkuAppService;
+import com.lingxiao.catalog.application.query.SkuQueryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,20 +16,20 @@ import java.util.List;
 @RequestMapping("/products")
 public class ProductController {
 
-    private final SkuAppService skuAppService;
+    private final SkuQueryService skuQueryService;
 
-    public ProductController(SkuAppService skuAppService) {
-        this.skuAppService = skuAppService;
+    public ProductController(SkuQueryService skuQueryService) {
+        this.skuQueryService = skuQueryService;
     }
 
     @GetMapping("/{skuId}")
     public ResponseEntity<SkuResponse> get(@PathVariable("skuId") String skuId) {
-        return ResponseEntity.ok(skuAppService.get(skuId));
+        return ResponseEntity.ok(skuQueryService.get(skuId));
     }
 
     @PostMapping("/batchGet")
     public ResponseEntity<List<SkuResponse>> batchGet(@RequestBody List<String> skuIds) {
-        return ResponseEntity.ok(skuAppService.batchGet(skuIds));
+        return ResponseEntity.ok(skuQueryService.batchGet(skuIds));
     }
 }
 

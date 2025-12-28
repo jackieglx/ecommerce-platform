@@ -7,6 +7,7 @@ import com.google.cloud.spanner.ResultSet;
 import com.google.cloud.spanner.Statement;
 import com.google.cloud.spanner.Value;
 import com.lingxiao.catalog.api.dto.CreateSkuRequest;
+import com.lingxiao.catalog.api.dto.UpdateSkuRequest;
 import com.lingxiao.catalog.domain.model.Sku;
 import com.lingxiao.catalog.infrastructure.db.SkuRepository;
 import com.lingxiao.common.db.errors.NotFoundException;
@@ -79,6 +80,37 @@ public class SpannerSkuRepository extends BaseRepositorySupport implements SkuRe
                     return list;
                 }
             });
+        } catch (Exception ex) {
+            throw translator.translate(ex);
+        }
+    }
+
+    @Override
+    public Sku update(String skuId, UpdateSkuRequest request) {
+        try {
+            inReadWrite(tx -> {
+                Mutation.WriteBuilder builder = Mutation.newUpdateBuilder("Skus")
+                        .set("SkuId").to(skuId)
+                        .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP);
+                if (request.title() != null) {
+                    builder.set("Title").to(request.title());
+                }
+                if (request.status() != null) {
+                    builder.set("Status").to(request.status());
+                }
+                if (request.brand() != null) {
+                    builder.set("Brand").to(request.brand());
+                }
+                if (request.priceCents() != null) {
+                    builder.set("PriceCents").to(request.priceCents());
+                }
+                if (request.currency() != null) {
+                    builder.set("Currency").to(request.currency());
+                }
+                tx.buffer(builder.build());
+                return null;
+            });
+            return get(skuId);
         } catch (Exception ex) {
             throw translator.translate(ex);
         }
