@@ -105,7 +105,7 @@ PUT products_v1
 }
 ```
 
-
+![image-20251228215702548](README.assets/image-20251228215702548.png)
 
 
 

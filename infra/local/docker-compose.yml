@@ -34,12 +34,21 @@ services:
       - zookeeper_data:/var/lib/zookeeper
     networks:
       - ecommerce-local
+    restart: unless-stopped
+    healthcheck:
+      # 4lw "ruok" -> "imok" 表示 ZK 已经 ready
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 
   kafka:
     image: confluentinc/cp-kafka:7.6.1
     container_name: kafka
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -57,6 +66,15 @@ services:
       - kafka_data:/var/lib/kafka/data
     networks:
       - ecommerce-local
+    restart: unless-stopped
+    healthcheck:
+      # Confluent 镜像自带 cub 脚本；ready 以后才算 healthy
+      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 30"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
 
   redis:
     image: redis:7-alpine
@@ -83,6 +101,35 @@ services:
       - es_data:/usr/share/elasticsearch/data
     networks:
       - ecommerce-local
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - ecommerce-local
+    depends_on:
+      - redis
+      - kafka
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      # 可选：第一次登录就不用改密码（你也可以删掉这两行）
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ecommerce-local
+
 
 networks:
   ecommerce-local:
@@ -92,4 +139,5 @@ volumes:
   kafka_data:
   zookeeper_data:
   es_data:
+  grafana_data:
 
