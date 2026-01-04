@@ -1,7 +1,6 @@
 package com.lingxiao.order.application;
 
 import com.lingxiao.contracts.Topics;
-import com.lingxiao.contracts.events.OrderCancelledEvent;
 import com.lingxiao.contracts.events.OrderTimeoutScheduledEvent;
 import com.lingxiao.order.infrastructure.db.spanner.OrderRepository;
 import com.lingxiao.order.infrastructure.db.spanner.model.CancelOutcome;
@@ -11,7 +10,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -25,7 +23,6 @@ public class OrderTimeoutProcessor {
 
     private final OrderTimeoutQueue queue;
     private final OrderRepository repository;
-    private final KafkaTemplate<String, OrderCancelledEvent> kafkaTemplate;
 
     private final int claimBatchSize;
     private final long staleMs;
@@ -35,7 +32,6 @@ public class OrderTimeoutProcessor {
     public OrderTimeoutProcessor(
             OrderTimeoutQueue queue,
             OrderRepository repository,
-            KafkaTemplate<String, OrderCancelledEvent> kafkaTemplate,
             @Value("${order.timeout.claim-batch-size:50}") int claimBatchSize,
             @Value("${order.timeout.stale-ms:30000}") long staleMs,
             @Value("${order.timeout.reclaim-batch-size:100}") int reclaimBatchSize,
@@ -43,7 +39,6 @@ public class OrderTimeoutProcessor {
     ) {
         this.queue = queue;
         this.repository = repository;
-        this.kafkaTemplate = kafkaTemplate;
         this.claimBatchSize = claimBatchSize;
         this.staleMs = staleMs;
         this.reclaimBatchSize = reclaimBatchSize;
@@ -85,7 +80,6 @@ public class OrderTimeoutProcessor {
 
             switch (r) {
                 case CANCELLED -> {
-                    publishCancelled(orderId);
                     queue.ack(orderId, token);
                 }
                 case ALREADY_FINAL, NOT_FOUND -> {
@@ -128,18 +122,6 @@ public class OrderTimeoutProcessor {
         List<String> reclaimed = queue.reclaim(staleMs, reclaimBatchSize);
         if (!reclaimed.isEmpty()) {
             log.debug("Reclaimed timeouts back to ready count={}", reclaimed.size());
-        }
-    }
-
-    private void publishCancelled(String orderId) {
-        try {
-            kafkaTemplate.send(
-                    Topics.ORDER_CANCELLED,
-                    orderId,
-                    new OrderCancelledEvent(orderId, "TIMEOUT", Instant.now())
-            );
-        } catch (Exception e) {
-            log.warn("Failed to publish OrderCancelledEvent orderId={}", orderId, e);
         }
     }
 }

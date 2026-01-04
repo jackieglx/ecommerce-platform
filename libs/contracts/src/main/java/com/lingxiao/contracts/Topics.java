@@ -10,5 +10,6 @@ public final class Topics {
     public static final String FLASH_SALE_RESERVED_DLQ_V2 = "inventory.flashsale-reserved.dlq.v2";
     public static final String ORDER_TIMEOUT_SCHEDULED = "order.timeout-scheduled.v1";
     public static final String ORDER_CANCELLED = "order.cancelled.v1";
+    public static final String INVENTORY_RELEASE_REQUESTED = "inventory.release-requested.v1";
 }
 

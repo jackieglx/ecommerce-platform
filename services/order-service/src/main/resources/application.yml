@@ -27,6 +27,25 @@ spanner:
   emulator-enabled: ${SPANNER_EMULATOR_ENABLED:true}
   emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
 
+order:
+  timeout:
+    claim-interval-ms: 1000
+    reclaim-interval-ms: 5000
+    claim-batch-size: 50
+    stale-ms: 30000
+    reclaim-batch-size: 100
+    max-attempts: 10
+  outbox:
+    poll-interval-ms: 1000
+    batch-size: 50
+    max-attempts: 10
+    base-backoff-ms: 1000
+    send-timeout-ms: 5000
+    max-error-length: 1000
+    reclaim-interval-ms: 30000
+    stale-ms: 60000
+    reclaim-batch-size: 100
+
 management:
   endpoints:
     web:

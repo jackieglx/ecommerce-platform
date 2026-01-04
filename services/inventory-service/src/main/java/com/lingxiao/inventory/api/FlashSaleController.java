@@ -5,9 +5,8 @@ import com.lingxiao.inventory.api.dto.FlashSaleReservationResponse;
 import com.lingxiao.inventory.application.FlashSaleReservationResult;
 import com.lingxiao.inventory.application.FlashSaleReservationService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Value;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,22 +20,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class FlashSaleController {
 
     private final FlashSaleReservationService reservationService;
-    private final String testUserId;
 
-    public FlashSaleController(FlashSaleReservationService reservationService,
-                               @Value("${inventory.flashsale.test-user-id:test-user}") String testUserId) {
+    public FlashSaleController(FlashSaleReservationService reservationService) {
         this.reservationService = reservationService;
-        this.testUserId = testUserId;
     }
 
     @PostMapping("/reservations")
     public ResponseEntity<FlashSaleReservationResponse> reserve(
-            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            @RequestHeader(name = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
+            @RequestHeader("X-User-Id") @NotBlank String userId,
             @Valid @RequestBody FlashSaleReservationRequest request) {
-        String userId = resolveUserId(userIdHeader);
-        String idemKey = requireIdempotencyKey(idempotencyKey);
-        String pointer = reservationService.reserve(idemKey, userId, request.skuId(), request.qtyOrDefault());
+        String pointer = reservationService.reserve(idempotencyKey.trim(), userId.trim(), request.skuId(), request.qtyOrDefault());
         FlashSaleReservationResult result = FlashSaleReservationResult.fromPointer(pointer);
         FlashSaleReservationResponse response = new FlashSaleReservationResponse(
                 result.status().name(),
@@ -44,23 +38,6 @@ public class FlashSaleController {
                 result.reservationExpiresAt()
         );
         return ResponseEntity.ok(response);
-    }
-
-    private String resolveUserId(String userIdHeader) {
-        if (StringUtils.hasText(userIdHeader)) {
-            return userIdHeader;
-        }
-        if (StringUtils.hasText(testUserId)) {
-            return testUserId;
-        }
-        throw new IllegalArgumentException("userId is required from auth context");
-    }
-
-    private String requireIdempotencyKey(String idempotencyKey) {
-        if (!StringUtils.hasText(idempotencyKey)) {
-            throw new IllegalArgumentException("Idempotency-Key header is required");
-        }
-        return idempotencyKey.trim();
     }
 }
 
