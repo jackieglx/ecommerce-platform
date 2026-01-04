@@ -8,7 +8,17 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "inventory.flashsale.outbox")
 public record FlashSaleOutboxProperties(
         @NotBlank String streamKey,
-        @NotBlank String group
+        @NotBlank String group,
+        long blockTimeoutMs,
+        long pendingScanIntervalMs
 ) {
+    public FlashSaleOutboxProperties {
+        if (blockTimeoutMs <= 0) {
+            blockTimeoutMs = 2000;
+        }
+        if (pendingScanIntervalMs <= 0) {
+            pendingScanIntervalMs = 5000;
+        }
+    }
 }
 

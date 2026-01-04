@@ -9,6 +9,8 @@ import com.google.cloud.spanner.TransactionContext;
 import com.google.cloud.spanner.Value;
 import com.lingxiao.common.db.tx.TxRunner;
 import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
+import com.lingxiao.order.infrastructure.db.spanner.model.CancelOutcome;
+import com.lingxiao.order.infrastructure.db.spanner.model.CancelResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -91,6 +93,35 @@ public class OrderRepository {
             mutations.add(idemMutation);
             tx.buffer(mutations);
             return null;
+        });
+    }
+
+    public CancelOutcome cancelIfPending(String orderId, Instant now) {
+        return txRunner.runReadWrite(tx -> {
+            Struct row = tx.readRow("Orders", Key.of(orderId),
+                    List.of("Status", "StatusVersion", "ExpireAt"));
+            if (row == null) {
+                return new CancelOutcome(CancelResult.NOT_FOUND, null);
+            }
+            String status = row.getString("Status");
+            if (!"PENDING_PAYMENT".equals(status)) {
+                return new CancelOutcome(CancelResult.ALREADY_FINAL, null);
+            }
+            Instant expireAt = Instant.ofEpochSecond(row.getTimestamp("ExpireAt").getSeconds(),
+                    row.getTimestamp("ExpireAt").getNanos());
+            if (expireAt.isAfter(now)) {
+                return new CancelOutcome(CancelResult.NOT_EXPIRED_YET, expireAt);
+            }
+            long version = row.getLong("StatusVersion");
+
+            Mutation update = Mutation.newUpdateBuilder("Orders")
+                    .set("OrderId").to(orderId)
+                    .set("Status").to("CANCELLED")
+                    .set("StatusVersion").to(version + 1)
+                    .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                    .build();
+            tx.buffer(List.of(update));
+            return new CancelOutcome(CancelResult.CANCELLED, expireAt);
         });
     }
 }

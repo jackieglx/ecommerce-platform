@@ -12,13 +12,18 @@ import java.util.List;
 public class FlashSaleRedisRepository {
 
     private final StringRedisTemplate redisTemplate;
-    private final DefaultRedisScript<Long> script;
+    private final DefaultRedisScript<Long> reserveScript;
+    private final DefaultRedisScript<Long> releaseScript;
 
     public FlashSaleRedisRepository(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
-        this.script = new DefaultRedisScript<>();
-        this.script.setLocation(new ClassPathResource("lua/flash_sale.lua"));
-        this.script.setResultType(Long.class);
+        this.reserveScript = new DefaultRedisScript<>();
+        this.reserveScript.setLocation(new ClassPathResource("lua/flash_sale.lua"));
+        this.reserveScript.setResultType(Long.class);
+
+        this.releaseScript = new DefaultRedisScript<>();
+        this.releaseScript.setLocation(new ClassPathResource("lua/flash_sale_release.lua"));
+        this.releaseScript.setResultType(Long.class);
     }
 
     /**
@@ -39,7 +44,7 @@ public class FlashSaleRedisRepository {
                         String currency,
                         String expireAt) {
         Long res = redisTemplate.execute(
-                script,
+                reserveScript,
                 List.of(stockKey, buyersKey, orderKey, streamKey),
                 userId,
                 Long.toString(qty),
@@ -53,6 +58,21 @@ public class FlashSaleRedisRepository {
                 expireAt
         );
         return res == null ? -99 : res;
+    }
+
+    /**
+     * @return removed count from buyers set (0 or 1)
+     */
+    public long release(String stockKey,
+                        String buyersKey,
+                        String orderKey,
+                        long qty) {
+        Long res = redisTemplate.execute(
+                releaseScript,
+                List.of(stockKey, buyersKey, orderKey),
+                Long.toString(qty)
+        );
+        return res == null ? 0 : res;
     }
 }
 

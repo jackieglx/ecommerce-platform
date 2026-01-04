@@ -14,7 +14,11 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "com.lingxiao.contracts.events,com.lingxiao.contracts"
-        spring.json.value.default.type: com.lingxiao.contracts.events.FlashSaleReservedEventV2
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: true
 
 spanner:
   project-id: ${SPANNER_PROJECT:local-project}

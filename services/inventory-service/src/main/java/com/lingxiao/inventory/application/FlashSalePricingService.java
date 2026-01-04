@@ -23,7 +23,7 @@ public class FlashSalePricingService {
     }
 
     public Price fetchPrice(String skuId) {
-        String url = org.springframework.web.util.UriComponentsBuilder.fromHttpUrl(catalogBaseUrl)
+        String url = org.springframework.web.util.UriComponentsBuilder.fromUriString(catalogBaseUrl)
                 .path("/products/{skuId}")
                 .buildAndExpand(skuId)
                 .toUriString();

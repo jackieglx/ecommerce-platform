@@ -49,5 +49,13 @@ public class InventoryAppService {
     public void seed(String skuId, long onHand) {
         repository.seed(skuId, onHand);
     }
+
+    public void addOnHand(String skuId, long delta) {
+        repository.addOnHand(skuId, delta);
+    }
+
+    public void setOnHand(String skuId, long onHand) {
+        repository.setOnHand(skuId, onHand);
+    }
 }
 

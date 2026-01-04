@@ -55,6 +55,41 @@ public class InventoryRepository extends BaseRepositorySupport {
         });
     }
 
+    public void addOnHand(String skuId, long delta) {
+        inReadWrite(tx -> {
+            Optional<InventoryRow> invOpt = getInventory(tx, skuId);
+            InventoryRow inv = invOpt.orElse(new InventoryRow(0, 0));
+            long newOnHand = inv.onHand + delta;
+            if (newOnHand < 0) {
+                newOnHand = 0;
+            }
+            Mutation m = Mutation.newInsertOrUpdateBuilder("Inventory")
+                    .set("SkuId").to(skuId)
+                    .set("OnHand").to(newOnHand)
+                    .set("Reserved").to(inv.reserved)
+                    .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                    .build();
+            tx.buffer(m);
+            return null;
+        });
+    }
+
+    public void setOnHand(String skuId, long onHand) {
+        inReadWrite(tx -> {
+            Optional<InventoryRow> invOpt = getInventory(tx, skuId);
+            InventoryRow inv = invOpt.orElse(new InventoryRow(0, 0));
+            long target = Math.max(0, onHand);
+            Mutation m = Mutation.newInsertOrUpdateBuilder("Inventory")
+                    .set("SkuId").to(skuId)
+                    .set("OnHand").to(target)
+                    .set("Reserved").to(inv.reserved)
+                    .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                    .build();
+            tx.buffer(m);
+            return null;
+        });
+    }
+
     public boolean reserve(String orderId, String skuId, long qty, Duration ttl) {
         Instant now = Instant.now();
         Instant expireAt = now.plus(ttl);
@@ -244,6 +279,17 @@ public class InventoryRepository extends BaseRepositorySupport {
                 affected++;
             }
             return affected;
+        });
+    }
+
+    public List<com.lingxiao.inventory.api.dto.ReserveItem> getReservationItems(String orderId) {
+        return inReadOnly(tx -> {
+            List<ReservationRow> rows = listReservations(tx, orderId);
+            List<com.lingxiao.inventory.api.dto.ReserveItem> items = new ArrayList<>();
+            for (ReservationRow row : rows) {
+                items.add(new com.lingxiao.inventory.api.dto.ReserveItem(row.skuId, row.qty));
+            }
+            return items;
         });
     }
 

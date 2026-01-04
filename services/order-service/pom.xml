@@ -37,6 +37,11 @@
         </dependency>
     <dependency>
         <groupId>com.lingxiao</groupId>
+        <artifactId>common-redis</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.lingxiao</groupId>
         <artifactId>common-kafka</artifactId>
         <version>${project.version}</version>
     </dependency>

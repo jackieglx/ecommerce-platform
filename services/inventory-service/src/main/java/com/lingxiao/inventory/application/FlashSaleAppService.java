@@ -20,6 +20,7 @@ public class FlashSaleAppService {
     private final String hashTag;
     private final Duration orderTtl;
     private final Duration paymentTimeout;
+    private final Duration orderKeyTtl;
 
     public FlashSaleAppService(FlashSaleRedisRepository redisRepo,
                                FlashSaleOutboxProperties outboxProperties,
@@ -28,7 +29,8 @@ public class FlashSaleAppService {
                                @Value("${inventory.flashsale.idempotency-prefix:fs:order:}") String orderPrefix,
                                @Value("${inventory.flashsale.hash-tag:fs}") String hashTag,
                                @Value("${inventory.reservation.ttl:PT15M}") Duration orderTtl,
-                               @Value("${inventory.flashsale.payment-timeout:PT5M}") Duration paymentTimeout) {
+                               @Value("${inventory.flashsale.payment-timeout:PT5M}") Duration paymentTimeout,
+                               @Value("${inventory.flashsale.order-key-ttl:PT24H}") Duration orderKeyTtl) {
         this.redisRepo = redisRepo;
         this.stockPrefix = stockPrefix;
         this.buyersPrefix = buyersPrefix;
@@ -37,6 +39,7 @@ public class FlashSaleAppService {
         this.hashTag = hashTag;
         this.orderTtl = orderTtl;
         this.paymentTimeout = paymentTimeout;
+        this.orderKeyTtl = orderKeyTtl;
     }
 
     public FlashSaleResult reserve(String orderId,
@@ -54,10 +57,11 @@ public class FlashSaleAppService {
         String eventId = UUID.randomUUID().toString();
         Instant occurredAt = Instant.now();
         Instant expireAt = occurredAt.plus(paymentTimeout);
+        long orderKeyTtlSeconds = Math.max(orderTtl.toSeconds(), orderKeyTtl.toSeconds());
 
         long res = redisRepo.execute(
                 stockKey, buyersKey, orderKey, streamKey,
-                userId, qty, orderTtl,
+                userId, qty, Duration.ofSeconds(orderKeyTtlSeconds),
                 eventId, orderId, skuId, occurredAt.toString(),
                 priceCents, currency, expireAt.toString()
         );
@@ -72,6 +76,14 @@ public class FlashSaleAppService {
             result = new FlashSaleResult(false, false, false, expireAt);
         }
         return result;
+    }
+
+    public long releaseRedisReservation(String orderId, String skuId, long qty) {
+        String tag = "{" + hashTag + "}";
+        String stockKey = stockPrefix + tag + ":" + skuId;
+        String buyersKey = buyersPrefix + tag + ":" + skuId;
+        String orderKey = orderPrefix + tag + ":" + orderId;
+        return redisRepo.release(stockKey, buyersKey, orderKey, qty);
     }
 
     public record FlashSaleResult(boolean success, boolean duplicate, boolean insufficient, Instant expireAt) {}

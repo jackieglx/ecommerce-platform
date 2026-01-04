@@ -36,11 +36,11 @@ services:
       - ecommerce-local
     restart: unless-stopped
     healthcheck:
-      # 4lw "ruok" -> "imok" 表示 ZK 已经 ready
-      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok"]
+      test: ["CMD-SHELL", "echo srvr | nc -w 2 localhost 2181 | grep -q 'Mode:'"]
       interval: 5s
       timeout: 3s
       retries: 20
+
 
 
   kafka:
