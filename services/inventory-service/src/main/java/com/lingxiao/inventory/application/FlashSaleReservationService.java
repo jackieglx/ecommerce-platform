@@ -21,8 +21,8 @@ public class FlashSaleReservationService {
 
     @Idempotent(
             eventType = "flashsale_reserve_api_v1",
-            id = "#userId + ':' + #idempotencyKey",
-            payload = "#skuId + '|' + #qty",
+            id = "#p1 + ':' + #p0",          // p0=idempotencyKey, p1=userId
+            payload = "#p2 + '|' + #p3",     // p2=skuId, p3=qty
             result = "#result",
             onProcessing = ProcessingAction.RETRY,
             onDone = DoneAction.RETURN_POINTER,

@@ -11,5 +11,7 @@ public final class Topics {
     public static final String ORDER_TIMEOUT_SCHEDULED = "order.timeout-scheduled.v1";
     public static final String ORDER_CANCELLED = "order.cancelled.v1";
     public static final String INVENTORY_RELEASE_REQUESTED = "inventory.release-requested.v1";
+    public static final String PAYMENT_SUCCEEDED = "payment.succeeded.v1";
+    public static final String ORDER_PAID = "order.paid.v1";
 }
 

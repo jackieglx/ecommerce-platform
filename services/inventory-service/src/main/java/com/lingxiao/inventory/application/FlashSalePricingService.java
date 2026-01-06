@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 public class FlashSalePricingService {
@@ -16,23 +17,30 @@ public class FlashSalePricingService {
     private final RestClient restClient;
     private final String catalogBaseUrl;
 
-    public FlashSalePricingService(@Value("${inventory.flashsale.catalog-base-url:${CATALOG_BASE_URL:http://catalog-service:8080}}") String catalogBaseUrl,
-                                   RestClient.Builder builder) {
+    private static final String SKU_GET_PATH = "/api/v1/skus/{skuId}";
+
+    public FlashSalePricingService(
+            @Value("${inventory.flashsale.catalog-base-url:${CATALOG_BASE_URL:http://catalog-service:8080}}")
+            String catalogBaseUrl,
+            RestClient.Builder builder
+    ) {
         this.catalogBaseUrl = catalogBaseUrl;
         this.restClient = builder.baseUrl(catalogBaseUrl).build();
     }
 
     public Price fetchPrice(String skuId) {
-        String url = org.springframework.web.util.UriComponentsBuilder.fromUriString(catalogBaseUrl)
-                .path("/products/{skuId}")
+        String url = UriComponentsBuilder.fromUriString(catalogBaseUrl)
+                .path(SKU_GET_PATH)
                 .buildAndExpand(skuId)
                 .toUriString();
         log.info("Fetching price from url={}", url);
+
         try {
             CatalogSkuResponse resp = restClient.get()
-                    .uri("/products/{skuId}", skuId)
+                    .uri(SKU_GET_PATH, skuId)
                     .retrieve()
                     .body(CatalogSkuResponse.class);
+
             if (resp == null || resp.priceCents() < 0 || !StringUtils.hasText(resp.currency())) {
                 throw new IllegalStateException("Catalog returned invalid price for skuId=" + skuId);
             }
@@ -47,5 +55,3 @@ public class FlashSalePricingService {
 
     private record CatalogSkuResponse(String skuId, long priceCents, String currency) {}
 }
-
-

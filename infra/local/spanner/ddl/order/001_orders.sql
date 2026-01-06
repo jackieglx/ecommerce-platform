@@ -1,5 +1,5 @@
 CREATE TABLE Orders (
-  OrderId STRING(36) NOT NULL,
+  OrderId STRING(64) NOT NULL,
   UserId STRING(36) NOT NULL,
   Status STRING(32) NOT NULL,
   StatusVersion INT64 NOT NULL,

@@ -23,13 +23,8 @@ public class SkuUpsertedListener {
     }
 
     @KafkaListener(topics = Topics.SKU_UPSERTED, containerFactory = "kafkaListenerContainerFactory")
-    @Idempotent(eventType = "sku_upserted_v1", id = "#event.eventId()")
+    @Idempotent(eventType = "sku_upserted_v1", id = "#p0.eventId()")
     public void onMessage(SkuUpsertedEvent event) {
-        if (event.eventId() == null || event.eventId().isBlank()) {
-            log.warn("Received event without eventId, processing without idempotency. skuId={}", event.skuId());
-            indexService.indexSkus(List.of(event.skuId()));
-            return;
-        }
         indexService.indexSkus(List.of(event.skuId()));
     }
 }

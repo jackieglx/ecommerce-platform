@@ -1,5 +1,5 @@
 CREATE TABLE OrderItems (
-  OrderId STRING(36) NOT NULL,
+  OrderId STRING(64) NOT NULL,
   LineId INT64 NOT NULL,
   SkuId STRING(64) NOT NULL,
   ProductId STRING(64),

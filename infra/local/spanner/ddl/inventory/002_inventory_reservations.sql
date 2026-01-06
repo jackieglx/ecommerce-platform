@@ -1,5 +1,5 @@
 CREATE TABLE InventoryReservations (
-  OrderId STRING(36) NOT NULL,
+  OrderId STRING(64) NOT NULL,
   SkuId STRING(36) NOT NULL,
   Qty INT64 NOT NULL,
   Status STRING(32) NOT NULL,

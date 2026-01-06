@@ -26,16 +26,19 @@ public class CatalogClient {
     public List<CatalogSkuResponse> batchGet(List<String> skuIds) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+
+        // catalog 的 batch 接口参数是 List<String>，所以 body 就是 JSON 数组
         HttpEntity<List<String>> entity = new HttpEntity<>(skuIds, headers);
+
         CatalogSkuResponse[] resp = restTemplate.postForObject(
-                catalogBaseUrl + "/products/batchGet",
+                catalogBaseUrl + "/api/v1/skus/batch",
                 entity,
                 CatalogSkuResponse[].class
         );
+
         if (resp == null) {
             return List.of();
         }
         return Arrays.asList(resp);
     }
 }
-

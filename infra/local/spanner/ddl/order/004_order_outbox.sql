@@ -1,5 +1,5 @@
 CREATE TABLE OrderOutbox (
-  OutboxId STRING(36) NOT NULL,
+  OutboxId STRING(64) NOT NULL,
   EventType STRING(64) NOT NULL,
   AggregateId STRING(36) NOT NULL,
   PayloadJson STRING(MAX) NOT NULL,

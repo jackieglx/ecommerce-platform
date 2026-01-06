@@ -209,14 +209,14 @@ public class OrderRepository {
                         rs.getString("EventType"),
                         rs.getString("AggregateId"),
                         rs.getString("PayloadJson"),
-                        OutboxStatus.SENDING, // Will be SENDING after claim
-                        rs.getLong("Attempts"),
-                        rs.getTimestamp("NextAttemptAt").toInstant(),
-                        publisherId, // lockedBy
-                        now, // lockedAt
+                        OutboxStatus.SENDING,
+                        (rs.isNull("Attempts") ? 0 : Math.toIntExact(rs.getLong("Attempts"))),
+                        toInstant(rs.getTimestamp("NextAttemptAt")),
+                        publisherId,
+                        now,
                         rs.isNull("LastError") ? null : rs.getString("LastError"),
-                        rs.getTimestamp("CreatedAt").toInstant(),
-                        now // updatedAt
+                        toInstant(rs.getTimestamp("CreatedAt")),
+                        now
                 ));
             }
 
@@ -227,6 +227,12 @@ public class OrderRepository {
             return records;
         });
     }
+
+    private static Instant toInstant(Timestamp ts) {
+        if (ts == null) return null;
+        return Instant.ofEpochSecond(ts.getSeconds(), ts.getNanos());
+    }
+
 
     /**
      * Mark an outbox record as successfully sent.
@@ -389,6 +395,92 @@ public class OrderRepository {
             ));
         }
         return items;
+    }
+
+    /**
+     * Load order items as OrderLineItem for OrderPaidEvent.
+     */
+    private List<com.lingxiao.contracts.events.OrderLineItem> loadOrderLineItems(TransactionContext tx, String orderId) {
+        Statement stmt = Statement.newBuilder(
+                        "SELECT SkuId, Quantity FROM OrderItems WHERE OrderId = @orderId")
+                .bind("orderId").to(orderId)
+                .build();
+        ResultSet rs = tx.executeQuery(stmt);
+        List<com.lingxiao.contracts.events.OrderLineItem> items = new ArrayList<>();
+        while (rs.next()) {
+            items.add(new com.lingxiao.contracts.events.OrderLineItem(
+                    rs.getString("SkuId"),
+                    rs.getLong("Quantity")
+            ));
+        }
+        return items;
+    }
+
+    /**
+     * Mark order as PAID if it's currently PENDING_PAYMENT.
+     * Returns true if the update was successful, false if order was not in PENDING_PAYMENT status.
+     */
+    public boolean markPaid(String orderId, Instant paidAt) {
+        return txRunner.runReadWrite(tx -> {
+            Struct row = tx.readRow("Orders", Key.of(orderId),
+                    List.of("Status", "StatusVersion"));
+            if (row == null) {
+                log.warn("Order not found for markPaid orderId={}", orderId);
+                return false;
+            }
+
+            String status = row.getString("Status");
+            if (!"PENDING_PAYMENT".equals(status)) {
+                log.debug("Order not in PENDING_PAYMENT status, cannot mark as PAID orderId={} status={}", orderId, status);
+                return false;
+            }
+
+            long version = row.getLong("StatusVersion");
+
+            Mutation update = Mutation.newUpdateBuilder("Orders")
+                    .set("OrderId").to(orderId)
+                    .set("Status").to("PAID")
+                    .set("StatusVersion").to(version + 1)
+                    .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                    .build();
+            tx.buffer(update);
+            return true;
+        });
+    }
+
+    /**
+     * Publish OrderPaidEvent to outbox within the same transaction.
+     */
+    public void publishOrderPaidEvent(String orderId, Instant paidAt) {
+        txRunner.runReadWrite(tx -> {
+            List<com.lingxiao.contracts.events.OrderLineItem> items = loadOrderLineItems(tx, orderId);
+            if (items.isEmpty()) {
+                log.warn("Order has no items, skipping OrderPaidEvent orderId={}", orderId);
+                return null;
+            }
+
+            String eventId = UUID.randomUUID().toString();
+            com.lingxiao.contracts.events.OrderPaidEvent event = new com.lingxiao.contracts.events.OrderPaidEvent(
+                    eventId,
+                    orderId,
+                    paidAt,
+                    items
+            );
+
+            String outboxId = UUID.randomUUID().toString();
+            String payloadJson = toJson(event);
+            Instant nextAttemptAt = Instant.now();
+
+            Mutation outboxMutation = buildOutboxInsert(
+                    outboxId,
+                    "ORDER_PAID",
+                    orderId,
+                    payloadJson,
+                    nextAttemptAt
+            );
+            tx.buffer(outboxMutation);
+            return null;
+        });
     }
 
     private Mutation buildOutboxInsert(String outboxId, String eventType, String aggregateId, String payloadJson, Instant nextAttemptAt) {

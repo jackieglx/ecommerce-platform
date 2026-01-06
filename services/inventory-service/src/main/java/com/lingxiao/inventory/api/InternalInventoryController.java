@@ -49,7 +49,7 @@ public class InternalInventoryController {
     }
 
     @GetMapping("/{skuId}")
-    public ResponseEntity<Long> available(@PathVariable String skuId) {
+    public ResponseEntity<Long> available(@PathVariable("skuId") String skuId) {
         return ResponseEntity.ok(appService.getAvailable(skuId));
     }
 

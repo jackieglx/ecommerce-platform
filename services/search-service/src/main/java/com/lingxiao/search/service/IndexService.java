@@ -6,7 +6,11 @@ import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
 import co.elastic.clients.elasticsearch.core.bulk.IndexOperation;
+import co.elastic.clients.elasticsearch.core.bulk.UpdateOperation;
+import co.elastic.clients.elasticsearch.core.update.UpdateRequest;
+import co.elastic.clients.json.JsonData;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import com.lingxiao.search.api.dto.Sales7dUpdateRequest;
 import com.lingxiao.search.client.CatalogClient;
 import com.lingxiao.search.dto.CatalogSkuResponse;
 import com.lingxiao.search.es.model.SkuDocument;
@@ -17,8 +21,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -85,6 +91,64 @@ public class IndexService {
             }
         }
         return new IndexResult(skuIds.size(), ops.size(), missing);
+    }
+
+    /**
+     * Bulk update sales7d field for multiple SKUs.
+     * Uses ES update API with doc to only update the sales7d field without replacing the entire document.
+     */
+    public Sales7dUpdateResponse bulkUpdateSales7d(Sales7dUpdateRequest request) {
+        if (request.updates().isEmpty()) {
+            return new Sales7dUpdateResponse(0, 0, 0);
+        }
+
+        List<BulkOperation> ops = new ArrayList<>();
+        for (Sales7dUpdateRequest.Sales7dUpdate update : request.updates()) {
+            Map<String, JsonData> doc = new HashMap<>();
+            doc.put("sales7d", JsonData.of(update.sales7d()));
+            doc.put("sales7dHour", JsonData.of(update.sales7dHour()));
+            doc.put("sales7dUpdatedAt", JsonData.of(update.sales7dUpdatedAt().toString()));
+
+            UpdateOperation<SkuDocument> updateOp = UpdateOperation.of(u -> u
+                    .index(indexName)
+                    .id(update.skuId())
+                    .action(a -> a
+                            .doc(doc)
+                            .docAsUpsert(false) // Only update if document exists
+                    )
+            );
+            ops.add(BulkOperation.of(b -> b.update(updateOp)));
+        }
+
+        int requested = request.updates().size();
+        int updated = 0;
+        int failed = 0;
+
+        try {
+            BulkResponse resp = esClient.bulk(BulkRequest.of(b -> b.operations(ops).refresh(refreshOnWrite ? Refresh.True : Refresh.False)));
+            if (resp.errors()) {
+                log.warn("Bulk update sales7d finished with errors: {}", resp.items());
+            }
+            // Count successful and failed updates
+            for (var item : resp.items()) {
+                if (item.isResult()) {
+                    if (item.result().error() != null) {
+                        failed++;
+                    } else {
+                        updated++;
+                    }
+                } else if (item.error() != null) {
+                    failed++;
+                } else {
+                    updated++;
+                }
+            }
+        } catch (ElasticsearchException | IOException e) {
+            log.error("Failed to bulk update sales7d", e);
+            throw new RuntimeException("Failed to bulk update sales7d", e);
+        }
+
+        return new Sales7dUpdateResponse(requested, updated, failed);
     }
 }
 

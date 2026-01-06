@@ -40,4 +40,15 @@ management:
 
 logging:
   level:
-    com.lingxiao.search.messaging: DEBUG
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN
+
+    # 专门干掉那段超长的 ConsumerConfig values
+    org.apache.kafka.clients.consumer.ConsumerConfig: WARN
+
+    # 这些也很吵（rebalance/metadata/offset）
+    org.apache.kafka.clients.Metadata: WARN
+    org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: WARN
+    org.apache.kafka.clients.consumer.internals.ConsumerUtils: WARN
+    org.apache.kafka.common.utils.AppInfoParser: WARN
+

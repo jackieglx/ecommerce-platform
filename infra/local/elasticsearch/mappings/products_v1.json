@@ -22,6 +22,11 @@
           "tokenizer": "standard",
           "filter": ["lowercase", "asciifolding"]
         },
+        "product_text_search": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding"]
+        },
         "autocomplete_index": {
           "type": "custom",
           "tokenizer": "standard",
@@ -43,7 +48,7 @@
       "title": {
         "type": "text",
         "analyzer": "product_text",
-        "search_analyzer": "product_text",
+        "search_analyzer": "product_text_search",
         "fields": {
           "keyword": {
             "type": "keyword",
@@ -57,17 +62,53 @@
           }
         }
       },
-      "status": { "type": "keyword" },
-      "brand": {
-        "type": "keyword",
-        "normalizer": "lowercase_normalizer"
+
+      "description": {
+        "type": "text",
+        "analyzer": "product_text",
+        "search_analyzer": "product_text_search"
       },
+
+      "status": { "type": "keyword" },
+      "brand": { "type": "keyword", "normalizer": "lowercase_normalizer" },
+
+      "categoryId": { "type": "keyword" },
+      "categoryPath": { "type": "keyword" },
+      "sellerId": { "type": "keyword" },
+      "shopId": { "type": "keyword" },
+      "tags": { "type": "keyword", "normalizer": "lowercase_normalizer" },
+
+      "isActive": { "type": "boolean" },
+      "inStock": { "type": "boolean" },
+
+      "priceMin": { "type": "long" },
+      "priceMax": { "type": "long" },
       "priceCents": { "type": "long" },
       "currency": { "type": "keyword" },
+
+      "ratingAvg": { "type": "scaled_float", "scaling_factor": 100 },
+      "reviewCount": { "type": "integer" },
+
       "sales7d": { "type": "long" },
+      "sales7dHour": { "type": "long" },
+      "sales7dUpdatedAt": { "type": "date" },
+
       "createdAt": { "type": "date" },
-      "updatedAt": { "type": "date" }
+      "updatedAt": { "type": "date" },
+
+      "mainImageUrl": { "type": "keyword", "index": false },
+      "imageUrls": { "type": "keyword", "index": false },
+
+      "attrs": { "type": "flattened" },
+      "attributes": {
+        "type": "nested",
+        "properties": {
+          "name": { "type": "keyword", "normalizer": "lowercase_normalizer" },
+          "value": { "type": "keyword", "normalizer": "lowercase_normalizer" }
+        }
+      },
+
+      "suggest": { "type": "completion" }
     }
   }
 }
-

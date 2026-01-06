@@ -1,16 +1,9 @@
 server:
-  port: 8080
+  port: 8084
 
 spring:
   application:
-    name: catalog-service
-
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      # 如果你 Redis 需要密码再加：
-      # password: ${REDIS_PASSWORD:}
+    name: payment-service
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
@@ -24,6 +17,7 @@ spring:
         request.timeout.ms: 30000
         delivery.timeout.ms: 120000
         retries: 2147483647
+        spring.json.add.type.headers: true
 
 spanner:
   project-id: ${SPANNER_PROJECT:local-project}
@@ -43,8 +37,6 @@ management:
 
 logging:
   level:
-    org.springframework.web.servlet.DispatcherServlet: INFO
-    org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor: INFO
-    org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor: INFO
     org.apache.kafka: WARN
-    org.springframework.boot.autoconfigure.kafka: INFO
+    org.springframework.kafka: WARN
+

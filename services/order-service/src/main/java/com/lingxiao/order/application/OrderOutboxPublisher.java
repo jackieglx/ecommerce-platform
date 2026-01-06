@@ -3,6 +3,7 @@ package com.lingxiao.order.application;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lingxiao.contracts.Topics;
 import com.lingxiao.contracts.events.InventoryReleaseRequestedEvent;
+import com.lingxiao.contracts.events.OrderPaidEvent;
 import com.lingxiao.contracts.events.OrderTimeoutScheduledEvent;
 import com.lingxiao.order.infrastructure.db.spanner.OrderRepository;
 import com.lingxiao.order.infrastructure.db.spanner.model.OrderOutboxRecord;
@@ -116,6 +117,12 @@ public class OrderOutboxPublisher {
                     InventoryReleaseRequestedEvent event = objectMapper.readValue(
                             record.payloadJson(), InventoryReleaseRequestedEvent.class);
                     kafkaTemplate.send(Topics.INVENTORY_RELEASE_REQUESTED, record.aggregateId(), event)
+                            .get(sendTimeoutMs, TimeUnit.MILLISECONDS);
+                }
+                case "ORDER_PAID" -> {
+                    OrderPaidEvent event = objectMapper.readValue(
+                            record.payloadJson(), OrderPaidEvent.class);
+                    kafkaTemplate.send(Topics.ORDER_PAID, record.aggregateId(), event)
                             .get(sendTimeoutMs, TimeUnit.MILLISECONDS);
                 }
                 default -> throw new IllegalArgumentException("Unsupported outbox eventType=" + record.eventType());
