@@ -8,3 +8,5 @@ CREATE TABLE Payments (
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)
 ) PRIMARY KEY (PaymentId);
 
+CREATE UNIQUE INDEX PaymentsByOrderId ON Payments(OrderId);
+

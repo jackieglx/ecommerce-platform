@@ -1,6 +1,8 @@
 package com.lingxiao.search.api;
 
 import com.lingxiao.search.api.dto.IndexResponse;
+import com.lingxiao.search.api.dto.Sales7dUpdateRequest;
+import com.lingxiao.search.api.dto.Sales7dUpdateResponse;
 import com.lingxiao.search.dto.IndexRequest;
 import com.lingxiao.search.service.IndexResult;
 import com.lingxiao.search.service.IndexService;
@@ -27,6 +29,12 @@ public class InternalIndexController {
     public ResponseEntity<IndexResponse> indexSkus(@Valid @RequestBody IndexRequest request) {
         IndexResult result = indexService.indexSkus(request.skuIds());
         return ResponseEntity.ok(new IndexResponse(result.requested(), result.indexed(), result.missing()));
+    }
+
+    @PostMapping("/bulkUpdateSales7d")
+    public ResponseEntity<Sales7dUpdateResponse> bulkUpdateSales7d(@Valid @RequestBody Sales7dUpdateRequest request) {
+        Sales7dUpdateResponse result = indexService.bulkUpdateSales7d(request);
+        return ResponseEntity.ok(result);
     }
 }
 

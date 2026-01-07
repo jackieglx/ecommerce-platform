@@ -31,5 +31,17 @@ public class KafkaProducerConfig {
         DefaultKafkaProducerFactory<String, PaymentSucceededEvent> factory = new DefaultKafkaProducerFactory<>(configs);
         return factory;
     }
+
+    /**
+     * KafkaTemplate for outbox relay (sends JSON strings).
+     */
+    @Bean
+    public KafkaTemplate<String, String> stringKafkaTemplate(KafkaProperties properties) {
+        Map<String, Object> configs = new HashMap<>(properties.buildProducerProperties());
+        configs.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        configs.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(configs);
+        return new KafkaTemplate<>(factory);
+    }
 }
 

@@ -7,10 +7,10 @@ import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
 import co.elastic.clients.elasticsearch.core.bulk.IndexOperation;
 import co.elastic.clients.elasticsearch.core.bulk.UpdateOperation;
-import co.elastic.clients.elasticsearch.core.update.UpdateRequest;
 import co.elastic.clients.json.JsonData;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.lingxiao.search.api.dto.Sales7dUpdateRequest;
+import com.lingxiao.search.api.dto.Sales7dUpdateResponse;
 import com.lingxiao.search.client.CatalogClient;
 import com.lingxiao.search.dto.CatalogSkuResponse;
 import com.lingxiao.search.es.model.SkuDocument;
@@ -95,7 +95,7 @@ public class IndexService {
 
     /**
      * Bulk update sales7d field for multiple SKUs.
-     * Uses ES update API with doc to only update the sales7d field without replacing the entire document.
+     * Uses ES bulk update API with doc to only update the sales7d field without replacing the entire document.
      */
     public Sales7dUpdateResponse bulkUpdateSales7d(Sales7dUpdateRequest request) {
         if (request.updates().isEmpty()) {
@@ -104,18 +104,15 @@ public class IndexService {
 
         List<BulkOperation> ops = new ArrayList<>();
         for (Sales7dUpdateRequest.Sales7dUpdate update : request.updates()) {
-            Map<String, JsonData> doc = new HashMap<>();
-            doc.put("sales7d", JsonData.of(update.sales7d()));
-            doc.put("sales7dHour", JsonData.of(update.sales7dHour()));
-            doc.put("sales7dUpdatedAt", JsonData.of(update.sales7dUpdatedAt().toString()));
+            Map<String, Object> doc = new HashMap<>();
+            doc.put("sales7d", update.sales7d());
+            doc.put("sales7dHour", update.sales7dHour());
+            doc.put("sales7dUpdatedAt", update.sales7dUpdatedAt().toString());
 
-            UpdateOperation<SkuDocument> updateOp = UpdateOperation.of(u -> u
+            UpdateOperation<SkuDocument, Map<String, Object>> updateOp = UpdateOperation.of(u -> u
                     .index(indexName)
                     .id(update.skuId())
-                    .action(a -> a
-                            .doc(doc)
-                            .docAsUpsert(false) // Only update if document exists
-                    )
+                    .action(a -> a.doc(doc).docAsUpsert(false))
             );
             ops.add(BulkOperation.of(b -> b.update(updateOp)));
         }
@@ -131,13 +128,7 @@ public class IndexService {
             }
             // Count successful and failed updates
             for (var item : resp.items()) {
-                if (item.isResult()) {
-                    if (item.result().error() != null) {
-                        failed++;
-                    } else {
-                        updated++;
-                    }
-                } else if (item.error() != null) {
+                if (item.error() != null) {
                     failed++;
                 } else {
                     updated++;
