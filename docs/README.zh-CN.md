@@ -254,23 +254,10 @@ ecommerce-platform/
 
 ---
 
-## 本地开发
 
-- 本地环境初始化指南：`docs/local-init.md`（建议把启动步骤集中在这里）
-- 基础设施说明：`infra/README.md`（或 `infra/local/README.md`）
-
----
 
 ## 设计文档
 
 - 高层设计文档：`docs/high-level-design.md`
 
 ---
-
-## Roadmap（可选）
-
-如果你希望 README 里也体现“可继续扩展的方向”，可以考虑加入：
-- 压测报告与关键指标（P95/P99、吞吐、资源）
-- 可观测性（Metrics/Tracing/Log correlation）
-- 分区/热点 key 治理、限流/熔断、降级策略
-- 多机房/多区域部署与容灾策略

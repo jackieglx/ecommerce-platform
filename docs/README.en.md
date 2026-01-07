@@ -250,22 +250,9 @@ ecommerce-platform/
 
 ---
 
-## Local Development
-
-- Local environment bootstrap guide: `docs/local-init.md`
-- Infrastructure notes: `infra/README.md` (or `infra/local/README.md`)
-
----
 
 ## Docs
 
 - High Level Design: `docs/high-level-design.md`
 
 ---
-
-## Roadmap (optional)
-
-- Load-test report: P95/P99 latency, throughput, resource profile
-- Observability: metrics/tracing/log correlation
-- Hot-key mitigation, adaptive rate limiting, circuit breaking, graceful degradation
-- Multi-region deployment and disaster recovery strategy
