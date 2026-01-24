@@ -20,12 +20,17 @@ spring:
       properties:
         spring.json.add.type.headers: true
 
-spanner:
-  project-id: ${SPANNER_PROJECT:local-project}
-  instance-id: ${SPANNER_INSTANCE:local-instance}
-  database-id: ${SPANNER_DATABASE:local-db}
-  emulator-enabled: ${SPANNER_EMULATOR_ENABLED:true}
-  emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
+
+  cloud:
+    gcp:
+      spanner:
+        emulator:
+          enabled: true
+        emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
+        instance-id: ${SPANNER_INSTANCE:local-instance}
+        database: ${SPANNER_DATABASE:local-db}
+      project-id: ${SPANNER_PROJECT:local-project}
+
 
 order:
   timeout:

@@ -1,7 +1,5 @@
-![Inventory deduction flow](./inventory-deduction-flow.png)
+![System Design](./system-design.jpg)
 
 
 
 
-
-![Inventory deduction flow](./order-timeout-kafka.png)

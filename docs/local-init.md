@@ -3,6 +3,9 @@
 
 
 ```bash
+# 你想“彻底重置”本地依赖环境（比如数据乱了、版本不一致、初始化脚本需要重跑）
+docker compose -f infra/local/docker-compose.yml down -v
+
 # 1) 启动本地依赖（Spanner Emulator / Kafka / Redis / Elasticsearch / spanner-tools）
 #    目的：把本地运行所需的基础设施都拉起来（后台运行）
 docker compose -f infra/local/docker-compose.yml up -d
