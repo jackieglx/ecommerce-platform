@@ -5,6 +5,7 @@ import com.lingxiao.payment.api.dto.PaymentResponse;
 import com.lingxiao.payment.application.PaymentService;
 import com.lingxiao.payment.domain.Payment;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,11 +20,12 @@ public class PaymentController {
     }
 
     @PostMapping("/succeed")
-    public ResponseEntity<PaymentResponse> succeedPayment(@Valid @RequestBody SucceedPaymentRequest request) {
+    public ResponseEntity<PaymentResponse> succeedPayment(
+            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @Valid @RequestBody SucceedPaymentRequest request) {
         Payment payment = paymentService.succeedPayment(
                 request.orderId(),
-                request.amountCents(),
-                request.currency()
+                userId.trim()
         );
         return ResponseEntity.ok(new PaymentResponse(
                 payment.paymentId(),

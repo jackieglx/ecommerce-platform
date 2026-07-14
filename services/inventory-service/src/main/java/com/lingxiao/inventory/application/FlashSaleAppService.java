@@ -1,7 +1,7 @@
 package com.lingxiao.inventory.application;
 
-import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
 import com.lingxiao.inventory.infrastructure.redis.FlashSaleRedisRepository;
+import com.lingxiao.inventory.infrastructure.redis.FlashSaleKeyGenerator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -13,46 +13,39 @@ import java.util.UUID;
 public class FlashSaleAppService {
 
     private final FlashSaleRedisRepository redisRepo;
-    private final String stockPrefix;
-    private final String buyersPrefix;
-    private final String orderPrefix;
-    private final String streamKey;
-    private final String hashTag;
+    private final FlashSaleKeyGenerator keyGenerator;
     private final Duration orderTtl;
     private final Duration paymentTimeout;
     private final Duration orderKeyTtl;
+    private final Duration snapshotTtl;
+    private final Duration buyersTtl;
 
     public FlashSaleAppService(FlashSaleRedisRepository redisRepo,
-                               FlashSaleOutboxProperties outboxProperties,
-                               @Value("${inventory.flashsale.stock-prefix:fs:stock:}") String stockPrefix,
-                               @Value("${inventory.flashsale.buyers-prefix:fs:buyers:}") String buyersPrefix,
-                               @Value("${inventory.flashsale.idempotency-prefix:fs:order:}") String orderPrefix,
-                               @Value("${inventory.flashsale.hash-tag:fs}") String hashTag,
+                               FlashSaleKeyGenerator keyGenerator,
                                @Value("${inventory.reservation.ttl:PT15M}") Duration orderTtl,
                                @Value("${inventory.flashsale.payment-timeout:PT5M}") Duration paymentTimeout,
-                               @Value("${inventory.flashsale.order-key-ttl:PT24H}") Duration orderKeyTtl) {
+                               @Value("${inventory.flashsale.order-key-ttl:PT24H}") Duration orderKeyTtl,
+                               @Value("${inventory.flashsale.snapshot-ttl:PT17M}") Duration snapshotTtl,
+                               @Value("${inventory.flashsale.buyers-ttl:P30D}") Duration buyersTtl) {
         this.redisRepo = redisRepo;
-        this.stockPrefix = stockPrefix;
-        this.buyersPrefix = buyersPrefix;
-        this.orderPrefix = orderPrefix;
-        this.streamKey = outboxProperties.streamKey();
-        this.hashTag = hashTag;
+        this.keyGenerator = keyGenerator;
         this.orderTtl = orderTtl;
         this.paymentTimeout = paymentTimeout;
         this.orderKeyTtl = orderKeyTtl;
+        this.snapshotTtl = snapshotTtl;
+        this.buyersTtl = buyersTtl;
     }
 
     public FlashSaleResult reserve(String orderId,
                                    String skuId,
                                    String userId,
-                                   long qty,
-                                   long priceCents,
-                                   String currency) {
-        // Use a constant hash tag to keep all keys in the same slot (cluster-safe)
-        String tag = "{" + hashTag + "}";
-        String stockKey = stockPrefix + tag + ":" + skuId;
-        String buyersKey = buyersPrefix + tag + ":" + skuId;
-        String orderKey = orderPrefix + tag + ":" + orderId;
+                                   long qty) {
+        String stockKey = keyGenerator.stockKey(skuId);
+        String buyersKey = keyGenerator.buyersKey(skuId);
+        String orderKey = keyGenerator.orderKey(orderId, skuId);
+        String streamKey = keyGenerator.streamKey(skuId);
+        String snapshotKey = keyGenerator.snapshotKey(orderId);
+        String priceKey = keyGenerator.priceKey(skuId);
 
         String eventId = UUID.randomUUID().toString();
         Instant occurredAt = Instant.now();
@@ -60,10 +53,11 @@ public class FlashSaleAppService {
         long orderKeyTtlSeconds = Math.max(orderTtl.toSeconds(), orderKeyTtl.toSeconds());
 
         long res = redisRepo.execute(
-                stockKey, buyersKey, orderKey, streamKey,
+                stockKey, buyersKey, orderKey, streamKey, snapshotKey, priceKey,
                 userId, qty, Duration.ofSeconds(orderKeyTtlSeconds),
+                snapshotTtl, buyersTtl,
                 eventId, orderId, skuId, occurredAt.toString(),
-                priceCents, currency, expireAt.toString()
+                expireAt.toString()
         );
         FlashSaleResult result;
         if (res == 1) {
@@ -73,16 +67,16 @@ public class FlashSaleAppService {
         } else if (res == -1) {
             result = new FlashSaleResult(false, true, false, expireAt);
         } else {
+            // -3 = price not preheated; -99 = null result. Both surface as FAILED.
             result = new FlashSaleResult(false, false, false, expireAt);
         }
         return result;
     }
 
     public long releaseRedisReservation(String orderId, String skuId, long qty) {
-        String tag = "{" + hashTag + "}";
-        String stockKey = stockPrefix + tag + ":" + skuId;
-        String buyersKey = buyersPrefix + tag + ":" + skuId;
-        String orderKey = orderPrefix + tag + ":" + orderId;
+        String stockKey = keyGenerator.stockKey(skuId);
+        String buyersKey = keyGenerator.buyersKey(skuId);
+        String orderKey = keyGenerator.orderKey(orderId, skuId);
         return redisRepo.release(stockKey, buyersKey, orderKey, qty);
     }
 

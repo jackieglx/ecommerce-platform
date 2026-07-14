@@ -27,34 +27,36 @@ public class FlashSaleRedisRepository {
     }
 
     /**
-     * @return 1 success, 0 insufficient, -1 duplicate
+     * @return 1 success, 0 insufficient, -1 duplicate, -3 price missing (not preheated)
      */
     public long execute(String stockKey,
                         String buyersKey,
                         String orderKey,
                         String streamKey,
+                        String snapshotKey,
+                        String priceKey,
                         String userId,
                         long qty,
                         Duration ttl,
+                        Duration snapshotTtl,
+                        Duration buyersTtl,
                         String eventId,
                         String orderId,
                         String skuId,
                         String occurredAt,
-                        long priceCents,
-                        String currency,
                         String expireAt) {
         Long res = redisTemplate.execute(
                 reserveScript,
-                List.of(stockKey, buyersKey, orderKey, streamKey),
+                List.of(stockKey, buyersKey, orderKey, streamKey, snapshotKey, priceKey),
                 userId,
                 Long.toString(qty),
                 Long.toString(ttl.toSeconds()),
+                Long.toString(Math.max(1, snapshotTtl.toSeconds())),
+                Long.toString(Math.max(0, buyersTtl.toSeconds())),
                 eventId,
                 orderId,
                 skuId,
                 occurredAt,
-                Long.toString(priceCents),
-                currency,
                 expireAt
         );
         return res == null ? -99 : res;

@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Component
-public class OrderTimeoutQueue {
+public class PaymentReconcileQueue {
 
     private final StringRedisTemplate redisTemplate;
     private final DefaultRedisScript<List<String>> claimScript;
@@ -18,12 +18,12 @@ public class OrderTimeoutQueue {
     private final DefaultRedisScript<List<String>> reclaimScript;
     private final DefaultRedisScript<Long> rescheduleScript;
 
-    private final String readyKey = "order:timeout:ready";
-    private final String processingKey = "order:timeout:processing";
-    private final String ownersKey = "order:timeout:owners";
-    private final String attemptsKey = "order:timeout:attempts";
+    private final String readyKey = "order:payrecon:ready";
+    private final String processingKey = "order:payrecon:processing";
+    private final String ownersKey = "order:payrecon:owners";
+    private final String attemptsKey = "order:payrecon:attempts";
 
-    public OrderTimeoutQueue(StringRedisTemplate redisTemplate) {
+    public PaymentReconcileQueue(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
         this.claimScript = loadListScript("lua/order_claim.lua");
         this.ackScript = loadLongScript("lua/order_ack.lua");
@@ -31,9 +31,8 @@ public class OrderTimeoutQueue {
         this.rescheduleScript = loadLongScript("lua/order_reschedule.lua");
     }
 
-    public void schedule(String orderId, Instant expireAt) {
-        long score = expireAt.toEpochMilli();
-        redisTemplate.opsForZSet().add(readyKey, orderId, score);
+    public void schedule(String orderId, Instant at) {
+        redisTemplate.opsForZSet().add(readyKey, orderId, at.toEpochMilli());
     }
 
     public ClaimResult claimDue(int limit) {
@@ -51,11 +50,19 @@ public class OrderTimeoutQueue {
     }
 
     public boolean ack(String orderId, String token) {
+        return ack(orderId, token, true);
+    }
+
+    public boolean ackKeepAttempts(String orderId, String token) {
+        return ack(orderId, token, false);
+    }
+
+    private boolean ack(String orderId, String token, boolean clearAttempts) {
         Long res = redisTemplate.execute(ackScript,
                 List.of(processingKey, ownersKey),
                 orderId, token);
         boolean ok = Long.valueOf(1L).equals(res);
-        if (ok) {
+        if (ok && clearAttempts) {
             clearAttempts(orderId);
         }
         return ok;
@@ -75,8 +82,8 @@ public class OrderTimeoutQueue {
      * Atomically move a task from processing -> ready with a new score.
      * Returns false if token mismatch (task is not owned by the caller).
      */
-    public boolean reschedule(String orderId, String token, Instant at) {
-        long score = at.toEpochMilli();
+    public boolean reschedule(String orderId, String token, Instant nextAt) {
+        long score = nextAt.toEpochMilli();
         Long res = redisTemplate.execute(rescheduleScript,
                 List.of(processingKey, ownersKey, readyKey),
                 orderId, token, Long.toString(score));
@@ -108,5 +115,4 @@ public class OrderTimeoutQueue {
 
     public record ClaimResult(String token, List<String> orderIds) {}
 }
-
 

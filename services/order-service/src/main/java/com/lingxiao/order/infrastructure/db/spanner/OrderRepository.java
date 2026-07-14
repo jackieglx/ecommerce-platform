@@ -2,8 +2,8 @@ package com.lingxiao.order.infrastructure.db.spanner;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.cloud.Timestamp;
-import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.Key;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.ResultSet;
@@ -14,10 +14,14 @@ import com.google.cloud.spanner.Value;
 import com.lingxiao.common.db.tx.TxRunner;
 import com.lingxiao.contracts.events.InventoryReleaseRequestedEvent;
 import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
+import com.lingxiao.contracts.events.OrderLineItem;
+import com.lingxiao.contracts.events.OrderPaidEvent;
+import com.lingxiao.contracts.events.PaymentSucceededEvent;
 import com.lingxiao.order.infrastructure.db.spanner.model.CancelOutcome;
 import com.lingxiao.order.infrastructure.db.spanner.model.CancelResult;
 import com.lingxiao.order.infrastructure.db.spanner.model.OrderOutboxRecord;
 import com.lingxiao.order.infrastructure.db.spanner.model.OutboxStatus;
+import com.lingxiao.order.messaging.OrderNotFoundForPaymentException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -32,13 +36,16 @@ public class OrderRepository {
 
     private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
 
-    private final DatabaseClient databaseClient;
     private final TxRunner txRunner;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .findAndRegisterModules()
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private final long timeoutGraceMs;
 
-    public OrderRepository(DatabaseClient databaseClient, TxRunner txRunner) {
-        this.databaseClient = databaseClient;
+    public OrderRepository(TxRunner txRunner,
+                           @org.springframework.beans.factory.annotation.Value("${order.timeout.grace-period-ms:60000}") long timeoutGraceMs) {
         this.txRunner = txRunner;
+        this.timeoutGraceMs = timeoutGraceMs;
     }
 
     public void createFromFlashSaleEvent(FlashSaleReservedEventV2 event) {
@@ -51,6 +58,8 @@ public class OrderRepository {
                 return null;
             }
 
+            PendingPayment pending = getPendingPayment(tx, event.orderId());
+
             Instant expireAt = event.expireAt() != null ? event.expireAt() : event.occurredAt().plusSeconds(300);
             long subtotal = event.priceCents() * event.qty();
             long discount = 0;
@@ -58,11 +67,17 @@ public class OrderRepository {
             long shipping = 0;
             long total = subtotal - discount + tax + shipping;
 
+            boolean pendingPaid = pending != null && "PENDING".equals(pending.status());
+            boolean latePayment = pendingPaid && pending.paidAt() != null && pending.paidAt().isAfter(expireAt);
+            boolean alreadyPaid = pendingPaid && !latePayment;
+            String status = alreadyPaid ? "PAID" : "PENDING_PAYMENT";
+            long statusVersion = alreadyPaid ? 2L : 1L;
+
             Mutation orderMutation = Mutation.newInsertBuilder("Orders")
                     .set("OrderId").to(event.orderId())
                     .set("UserId").to(event.userId())
-                    .set("Status").to("PENDING_PAYMENT")
-                    .set("StatusVersion").to(1L)
+                    .set("Status").to(status)
+                    .set("StatusVersion").to(statusVersion)
                     .set("ExpireAt").to(Timestamp.ofTimeSecondsAndNanos(expireAt.getEpochSecond(), expireAt.getNano()))
                     .set("Currency").to(event.currency())
                     .set("SubtotalCents").to(subtotal)
@@ -100,18 +115,300 @@ public class OrderRepository {
             mutations.add(orderMutation);
             mutations.add(itemMutation);
             mutations.add(idemMutation);
-            String timeoutOutboxId = UUID.randomUUID().toString();
-            mutations.add(buildOutboxInsert(
-                    timeoutOutboxId,
-                    "ORDER_TIMEOUT_SCHEDULED",
-                    event.orderId(),
-                    toJson(new com.lingxiao.contracts.events.OrderTimeoutScheduledEvent(event.orderId(), expireAt)),
-                    expireAt.minusSeconds(1) // Set NextAttemptAt slightly before expireAt for immediate processing
-            ));
+            Instant now = Instant.now();
+
+            if (latePayment) {
+                mutations.add(Mutation.newUpdateBuilder("PendingPayments")
+                        .set("OrderId").to(event.orderId())
+                        .set("Status").to("REFUND_REQUIRED")
+                        .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                        .build());
+                // still schedule timeout handling; order stays PENDING_PAYMENT
+                String timeoutOutboxId = UUID.randomUUID().toString();
+                mutations.add(buildOutboxInsert(
+                        timeoutOutboxId,
+                        "ORDER_TIMEOUT_SCHEDULED",
+                        event.orderId(),
+                        toJson(new com.lingxiao.contracts.events.OrderTimeoutScheduledEvent(event.orderId(), expireAt)),
+                        now
+                ));
+            } else if (alreadyPaid) {
+                // Payment arrived before order creation: converge in the same transaction
+                Instant paidAt = pending.paidAt() != null ? pending.paidAt() : now;
+                OrderPaidEvent paidEvent = new OrderPaidEvent(
+                        UUID.randomUUID().toString(),
+                        event.orderId(),
+                        paidAt,
+                        List.of(new OrderLineItem(event.skuId(), event.qty()))
+                );
+                mutations.add(buildOutboxInsert(
+                        UUID.randomUUID().toString(),
+                        "ORDER_PAID",
+                        event.orderId(),
+                        toJson(paidEvent),
+                        now
+                ));
+                mutations.add(Mutation.newUpdateBuilder("PendingPayments")
+                        .set("OrderId").to(event.orderId())
+                        .set("Status").to("APPLIED")
+                        .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                        .build());
+            } else {
+                String timeoutOutboxId = UUID.randomUUID().toString();
+                mutations.add(buildOutboxInsert(
+                        timeoutOutboxId,
+                        "ORDER_TIMEOUT_SCHEDULED",
+                        event.orderId(),
+                        toJson(new com.lingxiao.contracts.events.OrderTimeoutScheduledEvent(event.orderId(), expireAt)),
+                        now
+                ));
+            }
             tx.buffer(mutations);
             return null;
         });
     }
+
+    /**
+     * Handle payment succeeded with out-of-order tolerance:
+     * - If order exists: mark PAID (if eligible) and publish ORDER_PAID outbox.
+     * - If order doesn't exist: upsert into PendingPayments for later reconciliation.
+     */
+    public void handlePaymentSucceeded(PaymentSucceededEvent event) {
+        boolean needsRetry = txRunner.runReadWrite(tx -> {
+            Instant paidAt = event.paidAt() != null ? event.paidAt() : Instant.now();
+
+            Struct orderRow = tx.readRow("Orders", Key.of(event.orderId()),
+                    List.of("Status", "StatusVersion", "ExpireAt"));
+            if (orderRow == null) {
+                upsertPendingPayment(tx, event, paidAt);
+                return true; // order missing, request retry after commit
+            }
+
+            String status = orderRow.getString("Status");
+            long version = orderRow.getLong("StatusVersion");
+
+            Instant expireAt = Instant.ofEpochSecond(orderRow.getTimestamp("ExpireAt").getSeconds(),
+                    orderRow.getTimestamp("ExpireAt").getNanos());
+            if (expireAt.isBefore(paidAt) || "CANCELLED".equals(status)) {
+                markPendingRefundRequired(tx, event, paidAt);
+                return false;
+            }
+
+            if ("PENDING_PAYMENT".equals(status)) {
+                Mutation update = Mutation.newUpdateBuilder("Orders")
+                        .set("OrderId").to(event.orderId())
+                        .set("Status").to("PAID")
+                        .set("StatusVersion").to(version + 1)
+                        .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                        .build();
+                tx.buffer(update);
+            }
+
+            // If pending payment was already applied during order creation, don't republish ORDER_PAID.
+            Struct pending = tx.readRow("PendingPayments", Key.of(event.orderId()), List.of("PaymentId", "Status"));
+            boolean pendingApplied = pending != null
+                    && "APPLIED".equals(pending.getString("Status"))
+                    && event.paymentId().equals(pending.getString("PaymentId"));
+
+            if (!pendingApplied) {
+                // Publish ORDER_PAID to outbox (idempotent consumers are expected).
+                List<OrderLineItem> items = loadOrderLineItems(tx, event.orderId());
+                if (!items.isEmpty()) {
+                    OrderPaidEvent paidEvent = new OrderPaidEvent(
+                            UUID.randomUUID().toString(),
+                            event.orderId(),
+                            paidAt,
+                            items
+                    );
+                    tx.buffer(buildOutboxInsert(
+                            UUID.randomUUID().toString(),
+                            "ORDER_PAID",
+                            event.orderId(),
+                            toJson(paidEvent),
+                            Instant.now()
+                    ));
+                }
+            }
+
+            // Persist payment as applied for gating/idempotency (do NOT affect the "order missing" path).
+            upsertAppliedPayment(tx, event, paidAt);
+            return false;
+        });
+        if (needsRetry) {
+            throw new OrderNotFoundForPaymentException(event.orderId());
+        }
+    }
+
+    public enum PendingPaymentReconcileResult {
+        ORDER_MISSING,
+        NO_PENDING,
+        ALREADY_FINAL,
+        APPLIED,
+        REFUND_REQUIRED
+    }
+
+    /**
+     * Reconcile a previously stored PendingPayments=PENDING record once the order exists.
+     * This is used by the non-blocking reconcile queue to avoid blocking Kafka partitions.
+     */
+    public PendingPaymentReconcileResult reconcilePendingPayment(String orderId, Instant now) {
+        return txRunner.runReadWrite(tx -> {
+            Struct pendingRow = tx.readRow("PendingPayments", Key.of(orderId),
+                    List.of("PaymentId", "AmountCents", "Currency", "PaidAt", "Status"));
+            if (pendingRow == null) {
+                return PendingPaymentReconcileResult.NO_PENDING;
+            }
+            String pendingStatus = pendingRow.getString("Status");
+            if (!"PENDING".equals(pendingStatus)) {
+                return PendingPaymentReconcileResult.ALREADY_FINAL;
+            }
+
+            Struct orderRow = tx.readRow("Orders", Key.of(orderId),
+                    List.of("Status", "StatusVersion", "ExpireAt"));
+            if (orderRow == null) {
+                return PendingPaymentReconcileResult.ORDER_MISSING;
+            }
+
+            String orderStatus = orderRow.getString("Status");
+            Instant expireAt = Instant.ofEpochSecond(orderRow.getTimestamp("ExpireAt").getSeconds(),
+                    orderRow.getTimestamp("ExpireAt").getNanos());
+
+            Instant paidAt = Instant.ofEpochSecond(pendingRow.getTimestamp("PaidAt").getSeconds(),
+                    pendingRow.getTimestamp("PaidAt").getNanos());
+
+            // late payment or already cancelled -> refund required
+            if (expireAt.isBefore(paidAt) || "CANCELLED".equals(orderStatus)) {
+                tx.buffer(Mutation.newUpdateBuilder("PendingPayments")
+                        .set("OrderId").to(orderId)
+                        .set("Status").to("REFUND_REQUIRED")
+                        .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                        .build());
+                return PendingPaymentReconcileResult.REFUND_REQUIRED;
+            }
+
+            boolean transitionedToPaid = false;
+            if ("PENDING_PAYMENT".equals(orderStatus)) {
+                long version = orderRow.getLong("StatusVersion");
+                tx.buffer(Mutation.newUpdateBuilder("Orders")
+                        .set("OrderId").to(orderId)
+                        .set("Status").to("PAID")
+                        .set("StatusVersion").to(version + 1)
+                        .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                        .build());
+                transitionedToPaid = true;
+            }
+
+            // publish ORDER_PAID only when we transition to PAID in this reconcile
+            if (transitionedToPaid) {
+                List<OrderLineItem> items = loadOrderLineItems(tx, orderId);
+                if (!items.isEmpty()) {
+                    OrderPaidEvent paidEvent = new OrderPaidEvent(
+                            UUID.randomUUID().toString(),
+                            orderId,
+                            paidAt,
+                            items
+                    );
+                    tx.buffer(buildOutboxInsert(
+                            UUID.randomUUID().toString(),
+                            "ORDER_PAID",
+                            orderId,
+                            toJson(paidEvent),
+                            now != null ? now : Instant.now()
+                    ));
+                }
+            }
+
+            tx.buffer(Mutation.newUpdateBuilder("PendingPayments")
+                    .set("OrderId").to(orderId)
+                    .set("Status").to("APPLIED")
+                    .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                    .build());
+
+            return PendingPaymentReconcileResult.APPLIED;
+        });
+    }
+
+    private void upsertAppliedPayment(TransactionContext tx, PaymentSucceededEvent event, Instant paidAt) {
+        String raw = toJson(event);
+        Struct existing = tx.readRow("PendingPayments", Key.of(event.orderId()), List.of("Status", "PaymentId"));
+        if (existing != null) {
+            String s = existing.getString("Status");
+            if ("REFUND_REQUIRED".equals(s)) {
+                return; // don't override refund-required
+            }
+            if ("APPLIED".equals(s) && event.paymentId().equals(existing.getString("PaymentId"))) {
+                return; // already applied
+            }
+        }
+        Mutation m = Mutation.newInsertOrUpdateBuilder("PendingPayments")
+                .set("OrderId").to(event.orderId())
+                .set("PaymentId").to(event.paymentId())
+                .set("AmountCents").to(event.amountCents())
+                .set("Currency").to(event.currency())
+                .set("PaidAt").to(Timestamp.ofTimeSecondsAndNanos(paidAt.getEpochSecond(), paidAt.getNano()))
+                .set("Status").to("APPLIED")
+                .set("RawEventJson").to(raw)
+                .set("CreatedAt").to(Value.COMMIT_TIMESTAMP)
+                .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                .build();
+        tx.buffer(m);
+    }
+
+    private void upsertPendingPayment(TransactionContext tx, PaymentSucceededEvent event, Instant paidAt) {
+        String raw = toJson(event);
+        Struct existing = tx.readRow("PendingPayments", Key.of(event.orderId()), List.of("Status"));
+        if (existing != null) {
+            String s = existing.getString("Status");
+            if (!"PENDING".equals(s)) {
+                // don't downgrade APPLIED/REFUND_REQUIRED
+                return;
+            }
+        }
+        Mutation m = Mutation.newInsertOrUpdateBuilder("PendingPayments")
+                .set("OrderId").to(event.orderId())
+                .set("PaymentId").to(event.paymentId())
+                .set("AmountCents").to(event.amountCents())
+                .set("Currency").to(event.currency())
+                .set("PaidAt").to(Timestamp.ofTimeSecondsAndNanos(paidAt.getEpochSecond(), paidAt.getNano()))
+                .set("Status").to("PENDING")
+                .set("RawEventJson").to(raw)
+                .set("CreatedAt").to(Value.COMMIT_TIMESTAMP)
+                .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                .build();
+        tx.buffer(m);
+    }
+
+    private void markPendingRefundRequired(TransactionContext tx, PaymentSucceededEvent event, Instant paidAt) {
+        String raw = toJson(event);
+        Mutation m = Mutation.newInsertOrUpdateBuilder("PendingPayments")
+                .set("OrderId").to(event.orderId())
+                .set("PaymentId").to(event.paymentId())
+                .set("AmountCents").to(event.amountCents())
+                .set("Currency").to(event.currency())
+                .set("PaidAt").to(Timestamp.ofTimeSecondsAndNanos(paidAt.getEpochSecond(), paidAt.getNano()))
+                .set("Status").to("REFUND_REQUIRED")
+                .set("RawEventJson").to(raw)
+                .set("CreatedAt").to(Value.COMMIT_TIMESTAMP)
+                .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                .build();
+        tx.buffer(m);
+    }
+
+    private PendingPayment getPendingPayment(TransactionContext tx, String orderId) {
+        Struct row = tx.readRow("PendingPayments", Key.of(orderId),
+                List.of("PaymentId", "AmountCents", "Currency", "PaidAt", "Status"));
+        if (row == null) return null;
+        Instant paidAt = Instant.ofEpochSecond(row.getTimestamp("PaidAt").getSeconds(), row.getTimestamp("PaidAt").getNanos());
+        return new PendingPayment(
+                row.getString("PaymentId"),
+                row.getLong("AmountCents"),
+                row.getString("Currency"),
+                paidAt,
+                row.getString("Status")
+        );
+    }
+
+    private record PendingPayment(String paymentId, long amountCents, String currency, Instant paidAt, String status) {}
 
     public CancelOutcome cancelIfPending(String orderId, Instant now) {
         return txRunner.runReadWrite(tx -> {
@@ -126,8 +423,32 @@ public class OrderRepository {
             }
             Instant expireAt = Instant.ofEpochSecond(row.getTimestamp("ExpireAt").getSeconds(),
                     row.getTimestamp("ExpireAt").getNanos());
-            if (expireAt.isAfter(now)) {
-                return new CancelOutcome(CancelResult.NOT_EXPIRED_YET, expireAt);
+            Instant effectiveExpireAt = expireAt.plusMillis(timeoutGraceMs);
+            if (effectiveExpireAt.isAfter(now)) {
+                return new CancelOutcome(CancelResult.NOT_EXPIRED_YET, effectiveExpireAt);
+            }
+
+            // Final gate: if we already saw a valid payment in inbox, converge instead of cancelling.
+            PendingPayment pending = getPendingPayment(tx, orderId);
+            if (pending != null && ("PENDING".equals(pending.status()) || "APPLIED".equals(pending.status()))) {
+                boolean late = pending.paidAt() != null && pending.paidAt().isAfter(expireAt);
+                if (!late) {
+                    if ("PENDING_PAYMENT".equals(status)) {
+                        Mutation paid = Mutation.newUpdateBuilder("Orders")
+                                .set("OrderId").to(orderId)
+                                .set("Status").to("PAID")
+                                .set("StatusVersion").to(row.getLong("StatusVersion") + 1)
+                                .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                                .build();
+                        tx.buffer(paid);
+                    }
+                    tx.buffer(Mutation.newUpdateBuilder("PendingPayments")
+                            .set("OrderId").to(orderId)
+                            .set("Status").to("APPLIED")
+                            .set("UpdatedAt").to(Value.COMMIT_TIMESTAMP)
+                            .build());
+                    return new CancelOutcome(CancelResult.ALREADY_FINAL, effectiveExpireAt);
+                }
             }
             long version = row.getLong("StatusVersion");
 

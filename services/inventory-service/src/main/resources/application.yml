@@ -46,14 +46,20 @@ inventory:
     ttl: PT15M
   flashsale:
     catalog-base-url: http://localhost:8080
+    activity-id: "A100"
+    stream-shards: 8
     stock-prefix: "fs:stock:"
     buyers-prefix: "fs:buyers:"
     idempotency-prefix: "fs:order:"
-    hash-tag: "fs"
+    snapshot-prefix: "fs:snap:"
+    price-prefix: "fs:price:"
     payment-timeout: PT5M
     lua-timeout: 2000
+    snapshot-ttl: PT17M
+    buyers-ttl: P30D
     outbox:
-      stream-key: "fs:outbox:{fs}:flashsale-reserved"
+      enabled: true            # Stream->Kafka 转发器开关（测试环境可设 false；缺省 matchIfMissing=true 即开启）
+      stream-prefix: "fs:stream:"
       group: "fs-publisher"
       consumer: "fs-pub-1"
       batch-size: 50

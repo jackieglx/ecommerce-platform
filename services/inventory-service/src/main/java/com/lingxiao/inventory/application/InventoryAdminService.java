@@ -1,6 +1,8 @@
 package com.lingxiao.inventory.application;
 
 import com.lingxiao.inventory.infrastructure.db.spanner.InventoryRepository;
+import com.lingxiao.inventory.infrastructure.redis.FlashSaleKeyGenerator;
+import java.util.Map;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -10,17 +12,17 @@ public class InventoryAdminService {
 
     private final InventoryRepository repository;
     private final StringRedisTemplate redisTemplate;
-    private final String stockPrefix;
-    private final String hashTag;
+    private final FlashSaleKeyGenerator keyGenerator;
+    private final FlashSalePricingService pricingService;
 
     public InventoryAdminService(InventoryRepository repository,
                                  StringRedisTemplate redisTemplate,
-                                 @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.stock-prefix:fs:stock:}") String stockPrefix,
-                                 @org.springframework.beans.factory.annotation.Value("${inventory.flashsale.hash-tag:fs}") String hashTag) {
+                                 FlashSaleKeyGenerator keyGenerator,
+                                 FlashSalePricingService pricingService) {
         this.repository = repository;
         this.redisTemplate = redisTemplate;
-        this.stockPrefix = stockPrefix;
-        this.hashTag = hashTag;
+        this.keyGenerator = keyGenerator;
+        this.pricingService = pricingService;
     }
 
     public void addOnHand(String skuId, long delta) {
@@ -41,19 +43,31 @@ public class InventoryAdminService {
         repository.seed(skuId, onHand);
         long available = repository.getAvailable(skuId);
         syncRedisStockSet(skuId, available);
+        // Preheat price into Redis so the reserve hot path never calls catalog synchronously.
+        // This catalog call is off the hot path (once per SKU at activity setup) and must
+        // succeed for the SKU to be reservable later (otherwise reserve Lua returns -3).
+        preheatPrice(skuId);
+    }
+
+    private void preheatPrice(String skuId) {
+        if (!StringUtils.hasText(skuId)) return;
+        FlashSalePricingService.Price price = pricingService.fetchPrice(skuId);
+        String priceKey = keyGenerator.priceKey(skuId);
+        redisTemplate.opsForHash().putAll(priceKey, Map.of(
+                "priceCents", Long.toString(price.priceCents()),
+                "currency", price.currency()
+        ));
     }
 
     private void syncRedisStockAdd(String skuId, long delta) {
         if (!StringUtils.hasText(skuId)) return;
-        String tag = "{" + hashTag + "}";
-        String stockKey = stockPrefix + tag + ":" + skuId;
+        String stockKey = keyGenerator.stockKey(skuId);
         redisTemplate.opsForValue().increment(stockKey, delta);
     }
 
     private void syncRedisStockSet(String skuId, long target) {
         if (!StringUtils.hasText(skuId)) return;
-        String tag = "{" + hashTag + "}";
-        String stockKey = stockPrefix + tag + ":" + skuId;
+        String stockKey = keyGenerator.stockKey(skuId);
         String currentStr = redisTemplate.opsForValue().get(stockKey);
         if (currentStr == null) {
             redisTemplate.opsForValue().set(stockKey, Long.toString(target));

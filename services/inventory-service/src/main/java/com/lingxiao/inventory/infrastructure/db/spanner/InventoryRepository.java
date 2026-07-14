@@ -141,7 +141,7 @@ public class InventoryRepository extends BaseRepositorySupport {
         Instant now = Instant.now();
         Instant expireAt = now.plus(ttl);
         return inReadWrite(tx -> {
-            if (items == null || items.size() != 1 || items.getFirst().qty() != 1) {
+            if (items == null || items.size() != 1 || items.get(0).qty() != 1) {
                 return false;
             }
             // sum qty per sku

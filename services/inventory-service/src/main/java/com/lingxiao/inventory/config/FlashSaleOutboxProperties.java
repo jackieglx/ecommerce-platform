@@ -7,7 +7,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties(prefix = "inventory.flashsale.outbox")
 public record FlashSaleOutboxProperties(
-        @NotBlank String streamKey,
+        @NotBlank String streamPrefix,
         @NotBlank String group,
         long blockTimeoutMs,
         long pendingScanIntervalMs

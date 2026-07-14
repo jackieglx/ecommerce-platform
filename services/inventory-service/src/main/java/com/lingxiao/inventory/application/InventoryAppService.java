@@ -22,7 +22,7 @@ public class InventoryAppService {
     }
 
     public ReserveResponse reserve(String orderId, List<ReserveItem> items) {
-        if (items == null || items.size() != 1 || items.getFirst().qty() != 1) {
+        if (items == null || items.size() != 1 || items.get(0).qty() != 1) {
             throw new IllegalArgumentException("flash sale mode: only 1 item with qty=1 is supported");
         }
         boolean ok = repository.reserveBatch(orderId, items, reservationTtl);

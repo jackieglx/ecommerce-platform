@@ -25,7 +25,7 @@ public class FlashSaleReservedConsumer {
     @KafkaListener(topics = Topics.FLASH_SALE_RESERVED_V2)
     @Idempotent(
             eventType = "flashsale_reserved_v2",
-            id = "#event.eventId()",
+            id = "#p0.eventId()",
             onProcessing = ProcessingAction.RETRY,
             onDone = DoneAction.ACK,
             processingTtl = "PT30S",

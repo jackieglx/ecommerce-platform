@@ -1,6 +1,7 @@
 package com.lingxiao.inventory.metrics;
 
 import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
+import com.lingxiao.inventory.infrastructure.redis.FlashSaleKeyGenerator;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -24,14 +25,15 @@ public class FlashSaleMetrics {
     private final AtomicLong lengthGauge = new AtomicLong(0);
 
     private final StringRedisTemplate redisTemplate;
-    private final String streamKey;
+    private final FlashSaleKeyGenerator keyGenerator;
     private final String group;
 
     public FlashSaleMetrics(MeterRegistry registry,
                             StringRedisTemplate redisTemplate,
-                            FlashSaleOutboxProperties outboxProperties) {
+                            FlashSaleOutboxProperties outboxProperties,
+                            FlashSaleKeyGenerator keyGenerator) {
         this.redisTemplate = redisTemplate;
-        this.streamKey = outboxProperties.streamKey();
+        this.keyGenerator = keyGenerator;
         this.group = outboxProperties.group();
 
         this.publisherSuccess = Counter.builder("flashsale.publisher.kafka.success").register(registry);
@@ -52,22 +54,31 @@ public class FlashSaleMetrics {
 
     @Scheduled(fixedDelayString = "5000")
     public void refreshGauges() {
+        long totalPending = 0;
+        long totalLength = 0;
         try {
-            PendingMessagesSummary summary = redisTemplate.opsForStream().pending(streamKey, group);
-            if (summary != null) {
-                pendingGauge.set(summary.getTotalPendingMessages());
+            for (FlashSaleKeyGenerator.StreamShard shard : keyGenerator.streamShards()) {
+                String shardGroup = group + ":" + shard.shardId();
+                PendingMessagesSummary summary = redisTemplate.opsForStream().pending(shard.streamKey(), shardGroup);
+                if (summary != null) {
+                    totalPending += summary.getTotalPendingMessages();
+                }
             }
         } catch (Exception ignored) {
             // keep old value
         }
         try {
-            Long len = redisTemplate.opsForStream().size(streamKey);
-            if (len != null) {
-                lengthGauge.set(len);
+            for (FlashSaleKeyGenerator.StreamShard shard : keyGenerator.streamShards()) {
+                Long len = redisTemplate.opsForStream().size(shard.streamKey());
+                if (len != null) {
+                    totalLength += len;
+                }
             }
         } catch (Exception ignored) {
             // keep old value
         }
+        pendingGauge.set(totalPending);
+        lengthGauge.set(totalLength);
     }
 }
 

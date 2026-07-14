@@ -5,6 +5,11 @@ spring:
   application:
     name: order-service
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     consumer:
@@ -40,6 +45,8 @@ order:
     stale-ms: 30000
     reclaim-batch-size: 100
     max-attempts: 10
+    grace-period-ms: 60000
+    payment-marker-prefix: "fs:pay:"
   outbox:
     poll-interval-ms: 1000
     batch-size: 50
@@ -50,6 +57,16 @@ order:
     reclaim-interval-ms: 30000
     stale-ms: 60000
     reclaim-batch-size: 100
+
+  payment-reconcile:
+    claim-interval-ms: 1000
+    reclaim-interval-ms: 5000
+    claim-batch-size: 50
+    stale-ms: 30000
+    reclaim-batch-size: 100
+    max-attempts: 10
+    base-backoff-ms: 500
+    backoff-cap-ms: 60000
 
 management:
   endpoints:

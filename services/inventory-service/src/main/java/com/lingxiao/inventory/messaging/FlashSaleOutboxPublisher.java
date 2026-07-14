@@ -3,13 +3,14 @@ package com.lingxiao.inventory.messaging;
 import com.lingxiao.contracts.Topics;
 import com.lingxiao.contracts.events.FlashSaleReservedEventV2;
 import com.lingxiao.inventory.config.FlashSaleOutboxProperties;
+import com.lingxiao.inventory.infrastructure.redis.FlashSaleKeyGenerator;
 import com.lingxiao.inventory.metrics.FlashSaleMetrics;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
-import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -34,7 +35,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
-@Profile("local")
+@ConditionalOnProperty(prefix = "inventory.flashsale.outbox", name = "enabled", matchIfMissing = true)
 public class FlashSaleOutboxPublisher implements SmartLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(FlashSaleOutboxPublisher.class);
@@ -43,7 +44,7 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
     private final KafkaTemplate<String, FlashSaleReservedEventV2> kafkaTemplate;
     private final FlashSaleMetrics metrics;
 
-    private final String streamKey;
+    private final FlashSaleKeyGenerator keyGenerator;
     private final String group;
     private final String consumerName;
 
@@ -65,19 +66,14 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
     private final Semaphore inFlight;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "fs-outbox-relay");
-        t.setDaemon(true);
-        return t;
-    });
-
-    private volatile long lastPendingScan = 0L;
+    private final ExecutorService executor;
 
     public FlashSaleOutboxPublisher(StringRedisTemplate redisTemplate,
                                     KafkaTemplate<String, FlashSaleReservedEventV2> kafkaTemplate,
                                     FlashSaleMetrics metrics,
                                     FlashSaleOutboxProperties outboxProperties,
-                                    @Value("${inventory.flashsale.outbox.consumer:fs-pub-1}") String consumerName,
+                                    FlashSaleKeyGenerator keyGenerator,
+                                    @Value("${inventory.flashsale.outbox.consumer:${HOSTNAME:fs-pub}}") String consumerName,
                                     @Value("${inventory.flashsale.outbox.batch-size:50}") int batchSize,
                                     @Value("${inventory.flashsale.outbox.retry.base-ms:500}") long retryBaseMs,
                                     @Value("${inventory.flashsale.outbox.retry.cap-ms:60000}") long retryCapMs,
@@ -92,9 +88,11 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
         this.kafkaTemplate = kafkaTemplate;
         this.metrics = metrics;
 
-        this.streamKey = outboxProperties.streamKey();
+        this.keyGenerator = keyGenerator;
         this.group = outboxProperties.group();
-        this.consumerName = consumerName;
+        // 同组多实例必须使用唯一 consumer name，否则会争抢同一份 PEL；
+        // 追加进程级 UUID 确保即使多实例配置了相同 base 也不会冲突。
+        this.consumerName = consumerName + "-" + java.util.UUID.randomUUID();
 
         this.batchSize = batchSize;
         this.retryBaseMs = retryBaseMs;
@@ -110,48 +108,37 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
         this.blockTimeoutMs = outboxProperties.blockTimeoutMs();
         this.pendingScanIntervalMs = outboxProperties.pendingScanIntervalMs();
 
-        ensureGroup();
-    }
-
-    private void ensureGroup() {
-        try {
-            redisTemplate.opsForStream().createGroup(streamKey, ReadOffset.from("0-0"), group);
-        } catch (Exception e) {
-            // stream 不存在或 BUSYGROUP 等都可能走到这：尝试创建一个 dummy entry 再建 group
-            try {
-                redisTemplate.opsForStream().add(
-                        StreamRecords.mapBacked(Map.of("init", "1")).withStreamKey(streamKey)
-                );
-                redisTemplate.opsForStream().createGroup(streamKey, ReadOffset.from("0-0"), group);
-            } catch (Exception ignore) {
-                // BUSYGROUP / 已存在等：忽略
-            }
-        }
+        int shardCount = keyGenerator.streamShards().size();
+        this.executor = Executors.newFixedThreadPool(shardCount, r -> {
+            Thread t = new Thread(r, "fs-outbox-relay");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     // ---------------------- 主循环 ----------------------
 
-    private void runLoop() {
+    private void runLoop(ShardContext ctx) {
         while (running.get()) {
             try {
                 @SuppressWarnings("unchecked")
                 List<MapRecord<String, Object, Object>> messages = redisTemplate.opsForStream().read(
-                        Consumer.from(group, consumerName),
+                        Consumer.from(ctx.group(), ctx.consumerName()),
                         StreamReadOptions.empty()
                                 .count(batchSize)
                                 .block(Duration.ofMillis(blockTimeoutMs)),
-                        StreamOffset.create(streamKey, ReadOffset.lastConsumed())
+                        StreamOffset.create(ctx.streamKey(), ReadOffset.lastConsumed())
                 );
 
-                handleMessages(messages);
+                handleMessages(ctx, messages);
 
                 long now = System.currentTimeMillis();
-                if (now - lastPendingScan >= pendingScanIntervalMs) {
-                    scanPendingAndClaim();
-                    lastPendingScan = now;
+                if (now - ctx.lastPendingScan() >= pendingScanIntervalMs) {
+                    scanPendingAndClaim(ctx);
+                    ctx.setLastPendingScan(now);
                 }
             } catch (Exception e) {
-                log.warn("Outbox relay loop error", e);
+                log.warn("Outbox relay loop error stream={} group={} consumer={}", ctx.streamKey(), ctx.group(), ctx.consumerName(), e);
                 try {
                     Thread.sleep(500);
                 } catch (InterruptedException ie) {
@@ -166,9 +153,9 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
      * 1) claim stale（跨 consumer 恢复宕机的 consumer 持有的 pending）
      * 2) 少量 pending read：只拿“idle 足够久”的少量 pending 再尝试（避免扫全 pending 空转）
      */
-    private void scanPendingAndClaim() {
-        claimStalePending();          // 恢复“卡住的/宕机的”
-        claimRetryEligiblePending();  // 少量 + idle 过滤的 pending 再尝试
+    private void scanPendingAndClaim(ShardContext ctx) {
+        claimStalePending(ctx);          // 恢复“卡住的/宕机的”
+        claimRetryEligiblePending(ctx);  // 少量 + idle 过滤的 pending 再尝试
     }
 
     // ---------------------- Pending: stale 恢复 ----------------------
@@ -176,10 +163,10 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
     /**
      * 跨 consumer：把 idle >= pendingIdleMs 的 pending 任务 claim 到当前 consumer，然后处理。
      */
-    private void claimStalePending() {
+    private void claimStalePending(ShardContext ctx) {
         try {
             PendingMessages pending = redisTemplate.opsForStream()
-                    .pending(streamKey, group, Range.unbounded(), batchSize);
+                    .pending(ctx.streamKey(), ctx.group(), Range.unbounded(), batchSize);
 
             if (pending == null || pending.isEmpty()) {
                 return;
@@ -198,12 +185,12 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
             }
 
             List<MapRecord<String, Object, Object>> claimed = redisTemplate.opsForStream()
-                    .claim(streamKey, group, consumerName, Duration.ofMillis(pendingIdleMs),
+                    .claim(ctx.streamKey(), ctx.group(), ctx.consumerName(), Duration.ofMillis(pendingIdleMs),
                             ids.toArray(new RecordId[0]));
 
-            handleMessages(claimed);
+            handleMessages(ctx, claimed);
         } catch (Exception e) {
-            log.warn("Pending claim(stale) failed stream={} group={} consumer={}", streamKey, group, consumerName, e);
+            log.warn("Pending claim(stale) failed stream={} group={} consumer={}", ctx.streamKey(), ctx.group(), ctx.consumerName(), e);
         }
     }
 
@@ -213,12 +200,12 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
      * 仅针对“当前 consumer 自己的 pending”：挑 idle >= pendingReadIdleMs 的少量记录，再 claim 后处理。
      * 目的：避免 XREADGROUP 0-0 每次扫全 pending 导致 CPU 空转。
      */
-    private void claimRetryEligiblePending() {
+    private void claimRetryEligiblePending(ShardContext ctx) {
         try {
             // 先看当前 consumer 的 pending（不跨 consumer）
             int scanCount = Math.max(pendingReadLimit * 5, pendingReadLimit);
             PendingMessages pending = redisTemplate.opsForStream()
-                    .pending(streamKey, Consumer.from(group, consumerName), Range.unbounded(), scanCount);
+                    .pending(ctx.streamKey(), Consumer.from(ctx.group(), ctx.consumerName()), Range.unbounded(), scanCount);
 
             if (pending == null || pending.isEmpty()) {
                 return;
@@ -238,18 +225,18 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
 
             // claim 会把 idle 重置为 0，能天然避免“下一次 scan 又立刻把同一条拿出来”的空转
             List<MapRecord<String, Object, Object>> claimed = redisTemplate.opsForStream()
-                    .claim(streamKey, group, consumerName, Duration.ofMillis(pendingReadIdleMs),
+                    .claim(ctx.streamKey(), ctx.group(), ctx.consumerName(), Duration.ofMillis(pendingReadIdleMs),
                             ids.toArray(new RecordId[0]));
 
-            handleMessages(claimed);
+            handleMessages(ctx, claimed);
         } catch (Exception e) {
-            log.warn("Pending claim(retry-eligible) failed stream={} group={} consumer={}", streamKey, group, consumerName, e);
+            log.warn("Pending claim(retry-eligible) failed stream={} group={} consumer={}", ctx.streamKey(), ctx.group(), ctx.consumerName(), e);
         }
     }
 
     // ---------------------- 处理消息（发 Kafka + ack/delete） ----------------------
 
-    private void handleMessages(List<MapRecord<String, Object, Object>> records) {
+    private void handleMessages(ShardContext ctx, List<MapRecord<String, Object, Object>> records) {
         if (records == null || records.isEmpty()) {
             return;
         }
@@ -260,7 +247,7 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
 
             // 无 eventId：当作 poison 直接 ack 清掉，避免阻塞 PEL
             if (eventId == null || eventId.isBlank()) {
-                ackAndDelete(record);
+                ackAndDelete(ctx, record);
                 continue;
             }
 
@@ -274,7 +261,8 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
             // 若已经超过 maxAttempts：直接走 DLQ（不要再发主 topic）
             int currentAttempt = getAttempt(eventId);
             if (currentAttempt > maxAttempts) {
-                sendDlqAsync(record, eventId);
+                inFlight.acquireUninterruptibly();
+                sendDlqAsync(ctx, record, eventId);
                 continue;
             }
 
@@ -283,45 +271,40 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
                 event = toEvent(value);
             } catch (Exception parseEx) {
                 log.warn("Invalid outbox payload, ack it as poison recordId={}", record.getId(), parseEx);
-                ackAndDelete(record);
+                clearRetry(eventId);
+                ackAndDelete(ctx, record);
                 continue;
             }
 
-            inFlight.acquireUninterruptibly();
             try {
-                kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_V2, event.skuId(), event))
+                inFlight.acquireUninterruptibly();
+                kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_V2, event.orderId(), event))
                         .whenComplete((res, ex) -> {
-                            try {
-                                if (ex != null) {
-                                    onSendFailed(record, eventId, ex);
-                                } else {
-                                    onSendSuccess(record, eventId);
-                                }
-                            } finally {
-                                inFlight.release();
+                            if (ex != null) {
+                                onSendFailed(ctx, record, eventId, ex);
+                            } else {
+                                onSendSuccess(ctx, record, eventId);
                             }
                         });
             } catch (Exception syncEx) {
-                try {
-                    onSendFailed(record, eventId, syncEx);
-                } finally {
-                    inFlight.release();
-                }
+                onSendFailed(ctx, record, eventId, syncEx);
             }
         }
     }
 
-    private void onSendSuccess(MapRecord<String, Object, Object> record, String eventId) {
+    private void onSendSuccess(ShardContext ctx, MapRecord<String, Object, Object> record, String eventId) {
         try {
             clearRetry(eventId);
-            ackAndDelete(record);
+            ackAndDelete(ctx, record);
             metrics.incPublisherSuccess();
         } catch (Exception e) {
             log.warn("Success path ack/delete failed recordId={}", record.getId(), e);
+        } finally {
+            inFlight.release();
         }
     }
 
-    private void onSendFailed(MapRecord<String, Object, Object> record, String eventId, Throwable ex) {
+    private void onSendFailed(ShardContext ctx, MapRecord<String, Object, Object> record, String eventId, Throwable ex) {
         metrics.incPublisherFail();
 
         int attempt = incrementAttempt(eventId);
@@ -332,18 +315,19 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
         if (attempt > maxAttempts) {
             // 进入 DLQ 流程：下次也只尝试 DLQ
             setNext(eventId, now + retryCapMs);
-            sendDlqAsync(record, eventId);
+            sendDlqAsync(ctx, record, eventId);
             return;
         }
 
         metrics.incPublisherRetry();
         long backoff = computeBackoffMs(attempt);
         setNext(eventId, now + backoff);
+        inFlight.release();
     }
 
     private long computeBackoffMs(int attempt) {
         // attempt 从 1 开始：500, 1000, 2000... capped
-        long factor = 1L << Math.min(attempt, 10);
+        long factor = 1L << Math.min(Math.max(attempt - 1, 0), 10);
         long backoff = retryBaseMs * factor;
         return Math.min(backoff, retryCapMs);
     }
@@ -353,34 +337,48 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
     /**
      * 当已超过 maxAttempts 时，从主线程路径直接走 DLQ（也要占用 permit，避免 DLQ 打爆 Kafka）。
      */
-    private void sendDlqAsync(MapRecord<String, Object, Object> record, String eventId) {
+    private void sendDlqAsync(ShardContext ctx, MapRecord<String, Object, Object> record, String eventId) {
         FlashSaleReservedEventV2 event;
         try {
             event = toEvent(record.getValue());
         } catch (Exception e) {
             // DLQ 都构造不出来：当 poison，直接 ack 清掉
             log.error("Failed to build DLQ event, ack as poison recordId={}", record.getId(), e);
-            ackAndDelete(record);
-            clearRetry(eventId);
+            try {
+                ackAndDelete(ctx, record);
+                clearRetry(eventId);
+            } finally {
+                inFlight.release();
+            }
             return;
         }
 
-        // 这里不额外 acquire permit：调用方在失败回调时已持有 permit
-        kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_DLQ_V2, event.skuId(), event))
-                .whenComplete((res, ex) -> {
-                    try {
-                        if (ex != null) {
-                            log.error("Failed to send DLQ for recordId={}", record.getId(), ex);
-                            setNext(eventId, System.currentTimeMillis() + retryCapMs);
-                            // 不 ack：留在 pending 等下次再发 DLQ
-                        } else {
-                            clearRetry(eventId);
-                            ackAndDelete(record);
+        // permit 由调用方统一 acquire，本方法在回调或兜底释放
+        try {
+            kafkaTemplate.send(new ProducerRecord<>(Topics.FLASH_SALE_RESERVED_DLQ_V2, event.orderId(), event))
+                    .whenComplete((res, ex) -> {
+                        try {
+                            if (ex != null) {
+                                log.error("Failed to send DLQ for recordId={}", record.getId(), ex);
+                                setNext(eventId, System.currentTimeMillis() + retryCapMs);
+                                // 不 ack：留在 pending 等下次再发 DLQ
+                            } else {
+                                clearRetry(eventId);
+                                ackAndDelete(ctx, record);
+                            }
+                        } finally {
+                            inFlight.release();
                         }
-                    } finally {
-                        inFlight.release();
-                    }
-                });
+                    });
+        } catch (Exception sendEx) {
+            try {
+                log.error("DLQ send threw synchronously recordId={}", record.getId(), sendEx);
+                setNext(eventId, System.currentTimeMillis() + retryCapMs);
+                // 不 ack：留在 pending 等下次再发 DLQ
+            } finally {
+                inFlight.release();
+            }
+        }
     }
 
     // ---------------------- Retry state ----------------------
@@ -427,11 +425,11 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
 
     // ---------------------- Ack/Delete ----------------------
 
-    private void ackAndDelete(MapRecord<String, Object, Object> record) {
+    private void ackAndDelete(ShardContext ctx, MapRecord<String, Object, Object> record) {
         try {
-            Long acked = redisTemplate.opsForStream().acknowledge(streamKey, group, record.getId());
+            Long acked = redisTemplate.opsForStream().acknowledge(ctx.streamKey(), ctx.group(), record.getId());
             if (acked != null && acked > 0) {
-                redisTemplate.opsForStream().delete(streamKey, record.getId());
+                redisTemplate.opsForStream().delete(ctx.streamKey(), record.getId());
             } else {
                 // ack 失败就别 delete，避免 PEL 残留 + 数据丢失
                 log.warn("Ack returned 0 for recordId={}", record.getId());
@@ -470,7 +468,13 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
     @Override
     public void start() {
         if (running.compareAndSet(false, true)) {
-            executor.submit(this::runLoop);
+            for (FlashSaleKeyGenerator.StreamShard shard : keyGenerator.streamShards()) {
+                String shardGroup = group + ":" + shard.shardId();
+                String shardConsumer = consumerName + "-" + shard.shardId();
+                ShardContext ctx = new ShardContext(shard.streamKey(), shardGroup, shardConsumer);
+                ensureGroup(ctx);
+                executor.submit(() -> runLoop(ctx));
+            }
         }
     }
 
@@ -483,5 +487,54 @@ public class FlashSaleOutboxPublisher implements SmartLifecycle {
     @Override
     public boolean isRunning() {
         return running.get();
+    }
+
+    private void ensureGroup(ShardContext ctx) {
+        try {
+            redisTemplate.opsForStream().createGroup(ctx.streamKey(), ReadOffset.from("0-0"), ctx.group());
+        } catch (Exception e) {
+            // stream 不存在或 BUSYGROUP 等都可能走到这：尝试创建一个 dummy entry 再建 group
+            try {
+                redisTemplate.opsForStream().add(
+                        StreamRecords.mapBacked(Map.of("init", "1")).withStreamKey(ctx.streamKey())
+                );
+                redisTemplate.opsForStream().createGroup(ctx.streamKey(), ReadOffset.from("0-0"), ctx.group());
+            } catch (Exception ignore) {
+                // BUSYGROUP / 已存在等：忽略
+            }
+        }
+    }
+
+    private static final class ShardContext {
+        private final String streamKey;
+        private final String group;
+        private final String consumerName;
+        private volatile long lastPendingScan = 0L;
+
+        private ShardContext(String streamKey, String group, String consumerName) {
+            this.streamKey = streamKey;
+            this.group = group;
+            this.consumerName = consumerName;
+        }
+
+        private String streamKey() {
+            return streamKey;
+        }
+
+        private String group() {
+            return group;
+        }
+
+        private String consumerName() {
+            return consumerName;
+        }
+
+        private long lastPendingScan() {
+            return lastPendingScan;
+        }
+
+        private void setLastPendingScan(long lastPendingScan) {
+            this.lastPendingScan = lastPendingScan;
+        }
     }
 }

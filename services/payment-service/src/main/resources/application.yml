@@ -5,6 +5,11 @@ spring:
   application:
     name: payment-service
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:
@@ -39,4 +44,9 @@ logging:
   level:
     org.apache.kafka: WARN
     org.springframework.kafka: WARN
+
+payment:
+  snapshot-prefix: "fs:snap:"
+  marker-prefix: "fs:pay:"
+  marker-ttl: PT2H
 
