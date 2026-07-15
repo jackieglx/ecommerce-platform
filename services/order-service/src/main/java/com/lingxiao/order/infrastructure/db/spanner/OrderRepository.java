@@ -21,6 +21,7 @@ import com.lingxiao.order.infrastructure.db.spanner.model.CancelOutcome;
 import com.lingxiao.order.infrastructure.db.spanner.model.CancelResult;
 import com.lingxiao.order.infrastructure.db.spanner.model.OrderOutboxRecord;
 import com.lingxiao.order.infrastructure.db.spanner.model.OutboxStatus;
+import com.lingxiao.order.application.OrderSummary;
 import com.lingxiao.order.messaging.OrderNotFoundForPaymentException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -46,6 +48,37 @@ public class OrderRepository {
                            @org.springframework.beans.factory.annotation.Value("${order.timeout.grace-period-ms:60000}") long timeoutGraceMs) {
         this.txRunner = txRunner;
         this.timeoutGraceMs = timeoutGraceMs;
+    }
+
+    /**
+     * Returns the public fields of a flash-sale order. The reservation event creates one
+     * OrderItems row with LineId=1 in the same transaction as the Orders row.
+     */
+    public Optional<OrderSummary> findSummary(String orderId) {
+        return txRunner.runReadOnly(tx -> {
+            Statement statement = Statement.newBuilder("""
+                    SELECT o.OrderId, o.UserId, o.Status, o.CreatedAt, o.UpdatedAt, i.SkuId, i.Quantity
+                    FROM Orders o
+                    JOIN OrderItems i ON o.OrderId = i.OrderId
+                    WHERE o.OrderId = @orderId AND i.LineId = 1
+                    """)
+                    .bind("orderId").to(orderId)
+                    .build();
+            try (ResultSet resultSet = tx.executeQuery(statement)) {
+                if (!resultSet.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new OrderSummary(
+                        resultSet.getString("OrderId"),
+                        resultSet.getString("SkuId"),
+                        resultSet.getString("UserId"),
+                        resultSet.getLong("Quantity"),
+                        resultSet.getString("Status"),
+                        Instant.ofEpochSecond(resultSet.getTimestamp("CreatedAt").getSeconds(), resultSet.getTimestamp("CreatedAt").getNanos()),
+                        Instant.ofEpochSecond(resultSet.getTimestamp("UpdatedAt").getSeconds(), resultSet.getTimestamp("UpdatedAt").getNanos())
+                ));
+            }
+        });
     }
 
     public void createFromFlashSaleEvent(FlashSaleReservedEventV2 event) {

@@ -1,6 +1,13 @@
 server:
   port: 8083
 
+spanner:
+  project-id: ${SPANNER_PROJECT:local-project}
+  instance-id: ${SPANNER_INSTANCE:local-instance}
+  database-id: ${SPANNER_DATABASE:local-db}
+  emulator-enabled: ${SPANNER_EMULATOR_ENABLED:true}
+  emulator-host: ${SPANNER_EMULATOR_HOST:localhost:9010}
+
 spring:
   application:
     name: order-service

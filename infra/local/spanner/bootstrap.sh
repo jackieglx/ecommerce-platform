@@ -10,7 +10,7 @@ INSTANCE="${SPANNER_INSTANCE:-local-instance}"
 DATABASE="${SPANNER_DATABASE:-local-db}"
 
 # 你 compose 里 spanner emulator 的 REST endpoint（给 gcloud 用）
-REST_ENDPOINT="${SPANNER_EMULATOR_REST_ENDPOINT:-http://spanner:9020}"
+REST_ENDPOINT="${SPANNER_EMULATOR_REST_ENDPOINT:-http://spanner:9020/}"
 
 # 让 gcloud 配置只在这次运行生效，避免污染容器/默认配置
 export CLOUDSDK_CONFIG="$(mktemp -d)"

@@ -3,6 +3,7 @@ package com.lingxiao.sales7d;
 import com.lingxiao.sales7d.client.SearchInternalClient;
 import com.lingxiao.sales7d.model.Sales7dState;
 import com.lingxiao.sales7d.model.Sales7dUpdate;
+import com.lingxiao.sales7d.model.Sales7dWindow;
 import com.lingxiao.sales7d.util.TimeUtil;
 import org.apache.spark.api.java.function.FlatMapGroupsWithStateFunction;
 import org.apache.spark.api.java.function.MapFunction;
@@ -16,6 +17,7 @@ import org.apache.spark.sql.streaming.GroupState;
 import org.apache.spark.sql.streaming.GroupStateTimeout;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
+import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
@@ -25,7 +27,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -120,6 +121,8 @@ public class Sales7dStreamingJob implements Serializable {
         Dataset<Sales7dUpdate> updatesForSink = updates.coalesce(8);
 
         StreamingQuery query = updatesForSink.writeStream()
+                // Empty processing-time micro-batches let per-SKU state timeouts fire after Kafka is idle.
+                .trigger(Trigger.ProcessingTime("1 minute"))
                 .foreachBatch(new VoidFunction2<Dataset<Sales7dUpdate>, Long>() {
                     @Override
                     public void call(Dataset<Sales7dUpdate> batch, Long batchId) throws Exception {
@@ -192,28 +195,19 @@ public class Sales7dStreamingJob implements Serializable {
     }
 
     /**
-     * Per-SKU 7d aggregation with 168 hourly ring buckets + slotHour to detect reuse.
-     *
-     * Tradeoff aligned with你的“取舍1”：
-     * - 不做“无事件也刷新 ES”
-     * - 仅在有事件触发该 key 的 call() 时，正确清理过期桶 + 产生必要的更新
-     * - 使用长 timeout（8 days）只为了清理 state，避免 checkpoint 无限增长
+     * Per-SKU aggregation with 168 hourly buckets. Processing-time timeouts advance an idle
+     * SKU's window hourly, so expiry changes are emitted even without a new order event.
      */
     private static class Sales7dStateFunction
             implements FlatMapGroupsWithStateFunction<String, OrderItemRow, Sales7dState, Sales7dUpdate> {
 
         private static final Logger log = LoggerFactory.getLogger(Sales7dStateFunction.class);
-        private static final int BUCKETS = 168;
+        private static final int BUCKETS = Sales7dWindow.BUCKETS;
 
         @Override
         public Iterator<Sales7dUpdate> call(String skuId, Iterator<OrderItemRow> items, GroupState<Sales7dState> state) {
 
             // A) timeout 先处理：只负责清理 state（不负责“整点回调刷新 ES”）
-            if (state.hasTimedOut()) {
-                state.remove();
-                return Collections.emptyIterator();
-            }
-
             Sales7dState currentState = state.exists() ? state.get() : new Sales7dState();
 
             long currentHour = TimeUtil.currentHour();
@@ -225,6 +219,13 @@ public class Sales7dStreamingJob implements Serializable {
             boolean dirty = currentState.isDirty();
             long lastEmitHour = currentState.getLastEmitHour();
             long lastAdvancedHour = currentState.getLastAdvancedHour();
+
+            // Retain timed-out state long enough to write the sales decrement caused by expiry.
+            Sales7dWindow.AdvanceResult advanced =
+                    Sales7dWindow.removeExpiredBuckets(buckets, slotHours, sum7d, currentHour);
+            sum7d = advanced.sum7d();
+            dirty = dirty || advanced.changed();
+            lastAdvancedHour = currentHour;
 
             // 拉平 iterator（一个 micro-batch 内同 key 的 items）
             List<OrderItemRow> itemsList = new ArrayList<>();
@@ -314,16 +315,22 @@ public class Sales7dStreamingJob implements Serializable {
 
             // 输出：只要 dirty 且跨过小时边界，就发一次（避免同一小时重复写 ES）
             List<Sales7dUpdate> outputs = new ArrayList<>(1);
-            if (dirty && currentHour > lastEmitHour) {
+            if (dirty) {
                 outputs.add(new Sales7dUpdate(skuId, sum7d, currentHour, Instant.now()));
                 dirty = false;
                 lastEmitHour = currentHour;
             }
 
+            // Persist the final zero before releasing a state key with no remaining contribution.
+            if (state.hasTimedOut() && itemsList.isEmpty() && sum7d == 0) {
+                state.remove();
+                return outputs.iterator();
+            }
+
             state.update(new Sales7dState(buckets, slotHours, sum7d, dirty, lastEmitHour, lastAdvancedHour));
 
             // 仅用于清理不活跃 key（与你的 tradeoff 一致：不做“无事件刷新 ES”）
-            state.setTimeoutDuration("8 days");
+            state.setTimeoutDuration("1 hour");
 
             return outputs.iterator();
         }

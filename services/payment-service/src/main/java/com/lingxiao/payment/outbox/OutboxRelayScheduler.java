@@ -2,12 +2,16 @@ package com.lingxiao.payment.outbox;
 
 import com.lingxiao.payment.domain.OutboxEvent;
 import com.lingxiao.payment.infrastructure.db.OutboxRepository;
+import com.lingxiao.contracts.events.PaymentSucceededEvent;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.mapping.AbstractJavaTypeMapper;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -60,7 +64,15 @@ public class OutboxRelayScheduler {
             }
 
             try {
-                kafkaTemplate.send(event.topic(), event.kafkaKey(), event.payloadJson())
+                ProducerRecord<String, String> record =
+                        new ProducerRecord<>(event.topic(), event.kafkaKey(), event.payloadJson());
+                // The outbox stores JSON text, so StringSerializer cannot add the type header that
+                // the Order service's JsonDeserializer needs. Preserve the event contract explicitly.
+                if ("PAYMENT_SUCCEEDED".equals(event.eventType())) {
+                    record.headers().add(AbstractJavaTypeMapper.DEFAULT_CLASSID_FIELD_NAME,
+                            PaymentSucceededEvent.class.getName().getBytes(StandardCharsets.UTF_8));
+                }
+                kafkaTemplate.send(record)
                         .get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                 outboxRepository.markSent(event.id(), processorId);

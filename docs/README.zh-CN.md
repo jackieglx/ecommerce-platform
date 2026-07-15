@@ -6,7 +6,7 @@
 
 ## 简介
 
-一个面向**秒杀/抢购**场景设计的 **高并发、分布式电商平台后端**：通过 **Redis + Lua 原子扣减**、**事件驱动异步下单**、**Outbox + Spanner Change Streams** 的可靠消息投递、以及 **订单超时自动取消与库存回补**，实现“**快响应、不超卖、可恢复、最终一致**”。
+一个面向**秒杀/抢购**场景设计的 **高并发、分布式电商平台后端**：通过 **Redis + Lua 原子扣减**、**事件驱动异步下单**、**定时轮询 Outbox 表后发送 Kafka** 的可靠消息投递、以及 **订单超时自动取消与库存回补**，实现“**快响应、不超卖、可恢复、最终一致**”。
 
 ---
 
@@ -15,7 +15,7 @@
 这个项目源于分布式系统课程期末的自主选题。我对高并发场景下的技术挑战和架构权衡很感兴趣，因此提议并主导了“秒杀平台”方向。我不仅参与了前期的架构讨论，也**独立完成了核心后端链路的实现**，包括：
 
 - 秒杀下单主链路：Redis 库存、Lua 原子扣减、Stream 事件、转发到 Kafka、Order Service 落库
-- 订单超时取消：Outbox + Change Streams 可靠发布、Redis 延迟队列（双 ZSET + owner）、故障恢复
+- 订单超时取消：Outbox 定时轮询可靠发布、Redis 延迟队列（双 ZSET + owner）、故障恢复
 - 读多写少的商品详情二级缓存：Caffeine L1 + Redis L2、SingleFlight 防击穿、缓存失效广播
 - 搜索与 7 天热销：ES 索引、流式聚合 7 天销量、批量更新 ES 支持排序/榜单
 
@@ -53,7 +53,7 @@
 - L1：Caffeine（本地）尽可能把热点请求留在本机
 - L2：Redis（共享）降低 DB 压力
 - 防击穿：SingleFlight 合并同 key 回源
-- 一致性：写路径以 Change Streams 驱动缓存失效；必要时用“版本写入”或“延时双删”缩短旧值窗口
+- 一致性：写路径提交后删除 L2、L1，并通过 Redis Pub/Sub 广播失效；必要时可用“版本写入”或“延时双删”缩短旧值窗口
 
 ---
 
@@ -63,7 +63,7 @@
 Client
   │
   ▼
-Gateway (鉴权/路由/限流)
+直接访问服务端点（gateway-service 当前为占位模块）
   │
   ├─ Flash Sale API ───────────────► Inventory Service (Redis + Lua)
   │                                   │
@@ -79,7 +79,7 @@ Gateway (鉴权/路由/限流)
   │                                   │
   │                                   ├─ Outbox (same txn)
   │                                   ▼
-  │                       Spanner Change Streams → Kafka
+  │                       Outbox 定时轮询发布器 → Kafka
   │                                   │
   │                                   ▼
   │                         OrderTimeoutProcessor (Redis delay queue)
@@ -99,7 +99,7 @@ Gateway (鉴权/路由/限流)
 
 - **Java 21**
 - **Spring Boot 3.5.x / Spring Cloud 2025.x**
-- **Google Cloud Spanner**：分布式关系型数据库 & Change Streams
+- **Google Cloud Spanner**：分布式关系型数据库
 - **Redis**：秒杀库存、延迟队列、幂等、缓存、Pub/Sub
 - **Kafka**：服务间事件驱动通信
 - **Elasticsearch**：商品搜索与排序
@@ -109,7 +109,7 @@ Gateway (鉴权/路由/限流)
 
 ## 核心模块与服务
 
-- **Gateway Service**：统一入口（路由/鉴权/限流等）
+- **Gateway Service**：当前仅输出 `Hello, World!` 的占位模块，尚未实现路由、鉴权或限流
 - **Catalog Service**：商品与 SKU 管理，发布商品变更事件
 - **Search Service**：ES 搜索、过滤、排序；消费变更事件实时更新索引
 - **Inventory Service**：库存与秒杀；Redis Lua 原子扣减；库存释放消费
@@ -118,6 +118,48 @@ Gateway (鉴权/路由/限流)
 - **Cart/User/Notification Service**：购物车/用户/通知等基础能力（可按需扩展）
 - **Jobs / sales-7d-streaming-job**：Spark Streaming 计算 `sales_7d` 并回写 ES
 - **libs/**：公共库（contracts、kafka、redis、idempotency 等）
+
+---
+
+## 本地开发：宿主机 Java + Compose 依赖
+
+当前支持的本地模式是：Docker 只运行 Spanner Emulator、Kafka、Redis、Elasticsearch；Catalog、Search、Inventory、Order、Payment 五个核心服务以宿主机 Java 进程运行。仓库没有服务 Dockerfile，Compose 也不会启动 Java 服务。
+
+前置条件：Docker Desktop/Engine（含 Compose）、Java 21、Maven、`curl`（或 PowerShell）。Windows 使用 `.ps1` 启动脚本时还需要 Bash 用于 Kafka topic 初始化，安装 Git for Windows 即可；不需要云账号或外部密钥。
+
+一键启动：
+
+```bash
+./scripts/run-local.sh                 # Linux/macOS
+pwsh -File .\scripts\run-local.ps1    # Windows PowerShell
+```
+
+初始化 20 个固定本地演示商品和库存，然后启动前端：
+
+```powershell
+.\scripts\seed-demo-data.ps1
+cd frontend
+Copy-Item .env.example .env
+npm install
+npm run dev
+```
+
+Linux/macOS 使用 `./scripts/seed-demo-data.sh` 和 `cp frontend/.env.example frontend/.env`。默认 `.env.example` 已包含全部固定 demo SKU ID，前端通过真实 Catalog batch API 查询商品，不需要手工填写 SKU。
+
+脚本会启动依赖、幂等初始化 Spanner DDL、创建 Kafka topics、构建项目，然后以 `SPRING_PROFILES_ACTIVE=local` 启动五个核心服务。仅启动依赖可用 `--deps-only` / `-Mode deps-only`；之后在另一个终端用 `--services-only` / `-Mode services-only` 启动 Java 服务。日志和 PID 文件位于 `.local/`。
+
+容器内与宿主机地址不能混用：Compose 工具使用 `SPANNER_EMULATOR_HOST=spanner:9010`、Kafka `kafka:9092`；宿主机 Java 服务必须使用 `SPANNER_EMULATOR_HOST=localhost:9010`、`KAFKA_BOOTSTRAP_SERVERS=localhost:29092`。完整宿主机变量见 `infra/local/host.env.example`。必须启用 `local` profile，因为 SKU 写入接口和 Inventory 的 seed/admin 接口受该 profile 限制，未启用时会返回 404。
+
+最小 smoke test：
+
+```bash
+./scripts/smoke-local.sh
+pwsh -File .\scripts\smoke-local.ps1
+```
+
+测试会检查五个 `/actuator/health`，创建 SKU、初始化库存（同时预热价格）、预留一次秒杀库存，等待 Kafka 驱动的 Order 创建，提交支付，并通过真实 `GET /api/v1/orders/{orderId}` 等待 Order 为 `PAID`。
+
+停止：`./scripts/stop-local.sh` 或 `pwsh -File .\scripts\stop-local.ps1`。若需要破坏性地清空本地数据，运行 `infra/local/scripts/reset.sh`（会删除 Docker volumes）。`infra/k8s`、`infra/gcp`、`infra/ci` 目前只是计划，仓库中尚不存在。
 
 ---
 
@@ -141,7 +183,7 @@ Gateway (鉴权/路由/限流)
 
 ---
 
-### 2) 订单超时取消：Outbox + Change Streams + 可恢复延迟队列
+### 2) 订单超时取消：Outbox 定时轮询 + 可恢复延迟队列
 
 **目标：** 超时订单一定会被取消；库存一定会被释放；系统崩溃可恢复
 
@@ -150,7 +192,7 @@ Gateway (鉴权/路由/限流)
 1. 插入订单记录（Order）
 2. 插入一条 `NEW` 状态的超时取消事件（Outbox）
 
-事务提交后，通过 **Spanner Change Streams** 订阅 Outbox 表的变更，并借助 Connector 将 Outbox 事件推送到 Kafka，交由 `OrderTimeoutProcessor` 消费。
+事务提交后，由服务内的定时 Outbox 发布器领取待发送记录、发送至 Kafka，并将记录标记为已发送或可重试；本地环境未包含 Spanner Change Streams Connector。随后由 `OrderTimeoutProcessor` 消费并安排超时处理。
 
 #### 2.2 延迟队列：双 ZSET + owner（可恢复）
 - `ready ZSET`：待处理任务（member=orderId，score=expireAt）
@@ -164,7 +206,7 @@ Gateway (鉴权/路由/限流)
 - 在 Spanner 中对订单做**条件更新**（例如仅当状态仍为 `PENDING_PAYMENT` 才能更新为 `CANCELLED`）
   - 若已支付/已取消：不回补库存，直接结束
   - 若更新成功：在**同一事务**内写入一条“释放库存”事件到 Outbox（包含 `orderId/skuId/qty` 等）
-- 释放库存事件通过 Change Streams → Kafka 投递给库存服务，库存服务幂等回补 Redis 库存
+- 释放库存事件由同一 Outbox 定时发布器发送到 Kafka，库存服务幂等回补 Redis 库存
 
 #### 2.4 故障恢复
 如果 worker 领取任务后崩溃，会出现 `orderId` 已从 ready 移走但没完成处理。
@@ -191,10 +233,11 @@ Gateway (鉴权/路由/限流)
 > 如果未来需要跨实例进一步防击穿，可在 L2 miss 时增加分布式锁，但会带来额外延迟与复杂性。
 
 #### 3.2 写路径：cache-aside + 失效广播（最终一致）
-- Cache Invalidation Service 订阅 Spanner Change Streams 的商品变更事件
-- 收到变更后：
-  1. 删除 Redis（L2）
-  2. 通过 Redis Pub/Sub 广播失效消息，各实例清理本地 Caffeine（L1）
+- Catalog 的写服务在数据库事务提交后执行缓存旁路失效：
+  1. 先删除 Redis（L2），再删除当前实例的 Caffeine（L1）
+  2. 通过 Redis Pub/Sub 广播 SKU 失效消息，各实例订阅后清理本地 Caffeine（L1）
+
+当前没有独立的 Cache Invalidation Service，也没有基于 Change Streams 的缓存失效组件。
 
 #### 3.3 防止旧值回填扩散：版本写入 / 延时双删
 并发读写时可能出现“旧值在失效后又回填到 Redis”的问题，可用两种方案：
@@ -214,21 +257,21 @@ Gateway (鉴权/路由/限流)
 - 比月榜/总榜存储与计算成本更低，适合快速上线
 
 #### 4.2 计算与写入策略（避免高频写 ES）
-- 支付成功后，通过 CDC / Outbox 将 `OrderPaid` 写入 Kafka
-- Spark Streaming 每 10 秒批量消费事件，按 `skuId` 聚合
+- 支付成功后，由 Payment Outbox 定时发布器将 `OrderPaid` 写入 Kafka
+- Spark Streaming 每分钟触发一个 processing-time 微批次，按 `skuId` 聚合
 - 使用 `flatMapGroupsWithState` 为每个 `skuId` 维护状态（滑动 7 天窗口）
-- 为避免逐单写 ES 影响检索性能：**每小时批量更新**有变化（dirty）的 SKU 的 `sales_7d` 字段
+- 有变化的 SKU 每个微批次最多写回一次 ES；空闲 SKU 每小时被唤醒，以同步订单自然过期造成的销量变化
 
 #### 4.3 状态设计（每个 sku）
 - `bucketVal[168]`：168 个小时桶（7 天 * 24），记录该小时增量
 - `slotHour[168]`：该桶当前对应的小时编号（判断是否复用/过期）
-- `sum7d`：近 7 天总和（避免每次遍历 168 桶）
+- `sum7d`：近 7 天总和
 - `dirty`：本输出周期是否变化（只写有变化的 sku）
-- `lastEmitHour / lastAdvancedHour`：用于整点输出与窗口推进
+- `lastEmitHour / lastAdvancedHour`：记录最近一次输出与窗口推进，便于诊断
 
 #### 4.4 为什么用 ProcessingTimeTimeout
-- 一方面清理不活跃 key，防止 state 无限增长
-- 另一方面用于整点定时回调：即使没有新事件，也能在整点推进窗口并刷新 ES
+- 每小时唤醒仍在窗口内的 SKU。每次唤醒扫描固定的 168 个桶，清除当前 7 天窗口外的桶，并将变化后的值（包括 0）回写 ES。
+- 最后一个桶过期后，先持久化 0，再删除该 SKU 的 state；不会扫描数据库或 ES 索引。性能成本为每小时每个活跃 SKU 168 次简单桶检查。
 
 ---
 

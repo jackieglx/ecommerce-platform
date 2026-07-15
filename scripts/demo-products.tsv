@@ -1,0 +1,21 @@
+skuId	productId	title	status	brand	priceCents	currency	inventory
+demo-phone-001	demo-product-phone-001	星云 Pro 智能手机	ACTIVE	NovaTech	699900	USD	40
+demo-phone-002	demo-product-phone-002	星云 Air 智能手机	ACTIVE	NovaTech	499900	USD	45
+demo-headphones-001	demo-product-headphones-001	静界降噪耳机	ACTIVE	SoundPeak	129900	USD	80
+demo-keyboard-001	demo-product-keyboard-001	极光机械键盘	ACTIVE	KeyForge	89900	USD	70
+demo-monitor-001	demo-product-monitor-001	视界 27 英寸显示器	ACTIVE	PixelView	249900	USD	35
+demo-mouse-001	demo-product-mouse-001	疾风无线鼠标	ACTIVE	KeyForge	49900	USD	100
+demo-laptop-stand-001	demo-product-laptop-stand-001	铝合金笔记本支架	ACTIVE	DeskCraft	39900	USD	90
+demo-webcam-001	demo-product-webcam-001	高清会议摄像头	ACTIVE	PixelView	79900	USD	60
+demo-microphone-001	demo-product-microphone-001	播客 USB 麦克风	ACTIVE	SoundPeak	109900	USD	50
+demo-speaker-001	demo-product-speaker-001	桌面蓝牙音箱	ACTIVE	SoundPeak	69900	USD	75
+demo-tablet-001	demo-product-tablet-001	轻阅 11 英寸平板	ACTIVE	NovaTech	329900	USD	30
+demo-smartwatch-001	demo-product-smartwatch-001	跃动智能手表	ACTIVE	NovaTech	159900	USD	55
+demo-charger-001	demo-product-charger-001	氮化镓 65W 充电器	ACTIVE	VoltEdge	45900	USD	120
+demo-cable-001	demo-product-cable-001	USB-C 高速数据线	ACTIVE	VoltEdge	12900	USD	200
+demo-powerbank-001	demo-product-powerbank-001	双向快充移动电源	ACTIVE	VoltEdge	59900	USD	85
+demo-router-001	demo-product-router-001	Wi-Fi 6 千兆路由器	ACTIVE	NetWave	89900	USD	65
+demo-ssd-001	demo-product-ssd-001	1TB 便携固态硬盘	ACTIVE	DataCore	119900	USD	45
+demo-usb-hub-001	demo-product-usb-hub-001	八合一 USB-C 扩展坞	ACTIVE	DataCore	74900	USD	70
+demo-desk-lamp-001	demo-product-desk-lamp-001	护眼智能台灯	ACTIVE	DeskCraft	54900	USD	95
+demo-gaming-chair-001	demo-product-gaming-chair-001	人体工学电竞椅	ACTIVE	DeskCraft	189900	USD	25
