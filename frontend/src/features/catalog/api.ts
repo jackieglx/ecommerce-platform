@@ -8,3 +8,7 @@ const configuredSkuIds = String(import.meta.env.VITE_CATALOG_SKU_IDS ?? '').spli
 export function getConfiguredSkus(): Promise<Sku[]> {
   return requestJson<Sku[]>('/catalog-api/api/v1/skus/batch', { method: 'POST', body: JSON.stringify(configuredSkuIds) })
 }
+
+export function getSku(skuId: string): Promise<Sku> {
+  return requestJson<Sku>(`/catalog-api/api/v1/skus/${encodeURIComponent(skuId)}`)
+}

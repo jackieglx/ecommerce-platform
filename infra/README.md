@@ -4,7 +4,7 @@ Goals: one-command up/down/reset, reproducible dependencies for local dev.
 
 What’s included:
 - Spanner Emulator (`spanner`, with `spanner-tools` for gcloud)
-- Kafka + Zookeeper (bitnami)
+- Kafka 7.6.1 single-node KRaft (no ZooKeeper dependency)
 - Redis
 - Elasticsearch single-node (auth disabled)
 
@@ -24,6 +24,7 @@ Manual dependency initialization (the launch scripts do this automatically):
    - The script provisions every application event topic defined in `libs/contracts/src/main/java/com/lingxiao/contracts/Topics.java`.
    - It also provisions the generic consumer DLTs (`<source-topic>.DLT`) used by `common-kafka`; these retain the source topic's partition count.
    - Main event topics use 6 partitions, explicit flash-sale outbox DLQs use 3, and every local topic uses replication factor 1 for the single Kafka broker.
+   - Kafka uses a fixed local KRaft cluster ID and the `kafka_kraft_data` volume, avoiding cluster-ID drift between independently persisted Kafka and ZooKeeper volumes.
 6) ES template: `infra/local/elasticsearch/init.sh`
 
 Utilities:

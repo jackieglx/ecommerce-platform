@@ -21,14 +21,56 @@ wait_port() {
   done
 }
 
+kafka_diagnostics() {
+  local state log_path
+  state="$(docker inspect --format '{{.State.Status}}|{{.RestartCount}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' kafka 2>/dev/null || true)"
+  log_path="$(docker inspect --format '{{.LogPath}}' kafka 2>/dev/null || true)"
+  echo "Kafka container state: ${state:-not found}" >&2
+  echo "Docker log path: ${log_path:-unknown}" >&2
+  echo "Kafka log command: docker compose --env-file infra/local/.env -f infra/local/docker-compose.yml logs kafka --tail 150" >&2
+  "${COMPOSE[@]}" logs kafka --tail 150 >&2 || true
+}
+
+wait_kafka_ready() {
+  local state status restarts health
+  for _ in $(seq 1 60); do
+    state="$(docker inspect --format '{{.State.Status}}|{{.RestartCount}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' kafka 2>/dev/null || true)"
+    IFS='|' read -r status restarts health <<<"$state"
+    if [[ "$status" == "restarting" || "$status" == "exited" || "$status" == "dead" || "${restarts:-0}" -gt 0 ]]; then
+      kafka_diagnostics
+      echo "Kafka container crashed before becoming ready." >&2
+      return 1
+    fi
+    if [[ "$status" == "running" && "$health" == "healthy" ]] && (echo >/dev/tcp/localhost/29092) 2>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  kafka_diagnostics
+  echo "Timed out waiting for Kafka health and localhost:29092 after 120 seconds." >&2
+  return 1
+}
+
+initialize_kafka_topics() {
+  local attempt
+  for attempt in $(seq 1 5); do
+    if bash "$ROOT/infra/local/kafka/topics.sh"; then return 0; fi
+    echo "Kafka topic initialization attempt $attempt/5 failed; retrying in 3 seconds..." >&2
+    sleep 3
+  done
+  kafka_diagnostics
+  echo "Kafka topic initialization failed after 5 attempts. See the Kafka logs above." >&2
+  return 1
+}
+
 if [[ "$MODE" != "--services-only" ]]; then
-  "${COMPOSE[@]}" up -d spanner zookeeper kafka redis elasticsearch
+  "${COMPOSE[@]}" up -d spanner kafka redis elasticsearch
   wait_port localhost 9010 Spanner
-  wait_port localhost 29092 Kafka
+  wait_kafka_ready
   wait_port localhost 6379 Redis
   wait_port localhost 9200 Elasticsearch
   "${COMPOSE[@]}" run --rm --entrypoint bash spanner-tools spanner/bootstrap.sh
-  bash "$ROOT/infra/local/kafka/topics.sh"
+  initialize_kafka_topics
 fi
 
 if [[ "$MODE" == "--deps-only" ]]; then
@@ -49,14 +91,32 @@ mkdir -p "$LOG_DIR" "$PID_DIR"
 start_service() {
   local module="$1" name="$2" port="$3"
   if [[ -f "$PID_DIR/$name.pid" ]] && kill -0 "$(cat "$PID_DIR/$name.pid")" 2>/dev/null; then
-    echo "$name is already running"
-    return
+    if curl --fail --silent "http://localhost:$port/actuator/health" | grep -q '"status":"UP"'; then
+      echo "$name is already running and healthy"
+      return
+    fi
+    echo "$name has a live PID but no healthy endpoint; restarting it." >&2
+    kill "$(cat "$PID_DIR/$name.pid")" 2>/dev/null || true
+    rm -f "$PID_DIR/$name.pid"
   fi
+  local log="$LOG_DIR/$name-$(date +%Y%m%d%H%M%S).log"
   nohup "$MVN" -q -pl "$module" org.springframework.boot:spring-boot-maven-plugin:3.5.9:run \
-    -Dspring-boot.run.profiles=local >"$LOG_DIR/$name-$(date +%Y%m%d%H%M%S).log" 2>&1 &
+    -Dspring-boot.run.profiles=local >"$log" 2>&1 &
   echo $! >"$PID_DIR/$name.pid"
-  wait_port localhost "$port" "$name"
-  curl --fail --silent "http://localhost:$port/actuator/health" >/dev/null
+  local healthy=0 deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if curl --fail --silent "http://localhost:$port/actuator/health" | grep -q '"status":"UP"'; then
+      healthy=$((healthy + 1))
+    else
+      healthy=0
+    fi
+    [[ "$healthy" -ge 3 ]] && return 0
+    kill -0 "$(cat "$PID_DIR/$name.pid")" 2>/dev/null || break
+    sleep 1
+  done
+  echo "$name did not reach three consecutive healthy responses. Startup log: $log" >&2
+  tail -n 100 "$log" >&2 || true
+  return 1
 }
 
 start_service services/catalog-service catalog-service 8080

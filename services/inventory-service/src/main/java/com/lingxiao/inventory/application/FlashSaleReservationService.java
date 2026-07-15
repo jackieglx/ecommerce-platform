@@ -46,7 +46,7 @@ public class FlashSaleReservationService {
         }
         FlashSaleReservationResult result = new FlashSaleReservationResult(
                 status,
-                orderId,
+                status == FlashSaleReservationResult.Status.RESERVED ? orderId : null,
                 status == FlashSaleReservationResult.Status.RESERVED ? res.expireAt() : null,
                 skuId,
                 qty
