@@ -37,3 +37,6 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+# Local load-test output can contain large, run-specific machine data.
+/perf/results/
